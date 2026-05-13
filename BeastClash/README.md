@@ -1,85 +1,101 @@
-# 🐉 BEAST CLASH - Setup Guide
+# Beast Clash – Panduan Setup & Changelog Bug Fix
 
-## Cara Membuka di NetBeans
+## ⚙ Persyaratan
+| Komponen | Versi |
+|---|---|
+| NetBeans IDE | 21 ke atas (termasuk 29) |
+| JDK | 11 – 26 (project dikompilasi dengan `--release 11`) |
+| XAMPP | 8.x (MySQL 8.x) |
+| MySQL Connector/J | 9.x (letakkan di folder `lib/`) |
 
-1. Buka **NetBeans IDE**
-2. Pilih **File → Open Project**
-3. Arahkan ke folder `BeastClash` (folder yang berisi nbproject/)
-4. Klik **Open Project**
-5. Tekan **F6** atau klik tombol ▶ **Run Project**
+---
 
-## Struktur Folder
+## 🚀 Cara Setup (pertama kali)
 
+### 1. Siapkan Driver MySQL
+- Download `mysql-connector-j-9.x.x.jar` dari https://dev.mysql.com/downloads/connector/j/
+- Salin file `.jar` ke folder `lib/` di dalam project ini.
+- Baca file `lib/LETAKKAN_DRIVER_DISINI.txt` untuk detail.
+
+### 2. Siapkan Database XAMPP
+1. Jalankan XAMPP → klik **Start** pada Apache dan MySQL.
+2. Buka **phpMyAdmin** (http://localhost/phpmyadmin).
+3. Buat database baru bernama **`beastclash`** (kosong, tidak perlu import SQL).
+4. Tabel dibuat otomatis oleh program saat pertama dijalankan.
+
+### 3. Buka di NetBeans
+1. File → Open Project → pilih folder `BeastClash`.
+2. Klik kanan project → **Properties → Libraries**.
+3. Pastikan `lib/mysql-connector-j-9.x.x.jar` sudah terdaftar.
+   Jika belum, klik **Add JAR/Folder** dan pilih file tersebut.
+4. Tekan **F6** untuk menjalankan.
+
+---
+
+## 🐛 Daftar Bug yang Diperbaiki
+
+### 1. `GameState.java` – Progress & Beast Tidak Dimuat dari DB
+
+**Masalah:**
+- `loadProgressFromDB()` hanya memuat map progress, tidak memuat owned beast IDs.
+- Setelah login, beast yang dimiliki tidak di-cache → `getAvailableBeasts()` selalu query DB ulang, kadang hasilnya tidak konsisten.
+
+**Perbaikan:**
+- `loadProgressFromDB()` sekarang juga load & cache `ownedBeastIds` dari DB.
+- Ditambah method `invalidateBeastCache()` yang dipanggil setelah gacha unlock beast baru.
+- Maps di-reset ke kondisi awal sebelum load, mencegah data duplikat `completeLevel()`.
+- `setCurrentUserId()` otomatis reset cache saat user berganti.
+
+---
+
+### 2. `LoginPanel.java` – Koneksi DB Ganda & Progress Tidak Termuat Lengkap
+
+**Masalah:**
+- `checkDBConnection()` memanggil `db.connect()` tanpa cek apakah sudah terhubung → koneksi ganda.
+- Setelah login berhasil, `GameState.loadProgressFromDB()` hanya dimuat map, bukan beast.
+- Tidak ada validasi apakah DB terhubung sebelum tombol login ditekan.
+
+**Perbaikan:**
+- `checkDBConnection()` kini cek `db.isConnected()` sebelum memanggil `connect()`.
+- Setelah login sukses: `setCurrentUserId(uid)` lalu `loadProgressFromDB()` dipanggil — keduanya sekarang mencakup map progress **dan** owned beasts.
+- Ditambah guard: jika DB tidak terhubung saat tombol MASUK ditekan, tampilkan pesan error alih-alih mencoba login.
+
+---
+
+### 3. `GachaPanel.java` – Tidak Aman di Mode Offline & Data Tidak Diperbarui
+
+**Masalah:**
+- `userId` bisa bernilai `-1` (mode offline), namun kode langsung memanggil `DatabaseManager.getEggs(-1)` dan `getOwnedBeastIds(-1)` → hasil selalu 0 / fallback 24 beast.
+- Setelah pull berhasil, `GameState` tidak tahu ada beast baru → `BeastSelectPanel` masih menampilkan daftar lama.
+- `lblOwned` (jumlah beast dimiliki) tidak diperbarui setelah pull.
+
+**Perbaikan:**
+- Ditambah guard `userId <= 0`: tombol PULL dinonaktifkan, tampil keterangan mode offline.
+- Setelah pull berhasil: `GameState.invalidateBeastCache()` dipanggil agar `BeastSelectPanel` mendapat daftar beast terbaru dari DB.
+- `refreshOwnedCount()` dipanggil setelah setiap pull untuk memperbarui label jumlah beast.
+- Ditambah validasi `db.isConnected()` sebelum setiap operasi gacha.
+
+---
+
+### 4. `project.properties` – Path JDBC Hardcoded ke Drive Lokal
+
+**Masalah:**
 ```
-BeastClash/
-├── src/
-│   └── beastclash/
-│       ├── Main.java                    ← Entry point utama
-│       ├── controller/
-│       │   ├── BattleController.java    ← Logika pertempuran
-│       │   └── GameState.java           ← State game (singleton)
-│       ├── data/
-│       │   ├── BeastData.java           ← Data 24 beast
-│       │   └── MapData.java             ← Data 4 map
-│       ├── model/
-│       │   ├── Beast.java               ← Model beast
-│       │   └── GameMap.java             ← Model map
-│       └── view/
-│           ├── MainFrame.java           ← JFrame utama (navigasi)
-│           ├── MainMenuPanel.java       ← Layar menu utama
-│           ├── MapSelectPanel.java      ← Layar pilih map
-│           ├── BeastSelectPanel.java    ← Layar pilih 5 beast
-│           ├── BattlePanel.java         ← Layar pertempuran
-│           ├── HPBar.java               ← Custom HP/Mana bar
-│           └── ElementColor.java        ← Utility warna elemen
-├── nbproject/
-│   ├── project.xml
-│   └── project.properties
-└── manifest.mf
+file.reference.mysql-connector-j-9.5.0.jar=E:\\Game\\apache netbeans dll\\...
 ```
+Path ini hanya valid di komputer asli developer → project tidak bisa dibuka di komputer lain.
 
-## Fitur Game
+**Perbaikan:**
+- Path diubah ke **relatif**: `lib/mysql-connector-j-9.5.0.jar`
+- Folder `lib/` disertakan dalam project.
+- Baca `lib/LETAKKAN_DRIVER_DISINI.txt` untuk cara menempatkan file jar.
 
-### 🗺 Menu Utama
-- Tombol **MULAI** → munculkan PLAY / CREDIT / EXIT
-- Animasi langit bergerak dengan awan
-- Tombol **CREDIT** menampilkan nama tim
-- Tombol **EXIT** konfirmasi keluar
+---
 
-### 🗺 Pilih Map
-- **4 map**: Grass Land, Blizzard, Volcano, Desert
-- Hanya Grass Land yang terbuka di awal
-- Map berikutnya terbuka setelah semua level map sebelumnya selesai
-- Setiap map punya **3 level**
+### 5. Kompatibilitas JDK 26 + NetBeans 29
 
-### 🐉 Pilih Beast
-- **24 beast** tersedia (4 per elemen)
-- **6 elemen**: Api 🔥, Air 💧, Tanah 🪨, Daun 🌿, Cahaya ✨, Gelap 🌑
-- Filter berdasarkan elemen
-- Pilih **tepat 5 beast** untuk tim
-- Preview tim di bagian bawah
-- Info elemen musuh ditampilkan
+- `javac.source` dan `javac.target` tetap `11` — ini **sudah benar** dan kompatibel dengan JDK 26.
+- JDK 26 mendukung `--release 11` sehingga kode dikompilasi sebagai Java 11 dan berjalan di semua JDK 11+.
+- Tidak ada penggunaan API internal (`sun.*`, `com.sun.*`) yang diblokir module system.
+- Semua kode menggunakan API standar (`javax.swing`, `java.sql`, `java.awt`) yang tersedia di semua versi JDK.
 
-### ⚔ Battle
-- **Attack** - Serangan normal, restore 10 MP
-- **Skill** - Serangan kuat (25 MP)
-- **Ultimate** - Serangan dahsyat + splash (60 MP)
-- **Run** - 60% berhasil kabur
-- HP & Mana bar real-time
-- Log pertempuran (kanan)
-- Ganti beast aktif (klik tombol beast di bawah)
-- Efektivitas elemen (1.5x / 0.5x)
-
-### 🔥 Sistem Elemen
-| Kuat vs    | Lemah vs   |
-|-----------|------------|
-| Api → Daun | Api → Air  |
-| Air → Api  | Air → Daun |
-| Daun → Air | Daun → Api |
-| Cahaya → Gelap | Cahaya → Tanah |
-| Gelap → Tanah  | Gelap → Cahaya |
-| Tanah → Cahaya | Tanah → Gelap  |
-
-## Persyaratan
-- Java JDK 11 atau lebih baru
-- NetBeans IDE 12+

@@ -12,6 +12,11 @@ public class Beast {
     private int speed;
     private int id;
 
+    // Base stats – disimpan untuk dikembalikan setelah battle (reset debuff map)
+    private final int baseAttack;
+    private final int baseDefense;
+    private final int baseSpeed;
+
     // Rantai Kelemahan Elemen:
     // Api   kuat vs Daun,  lemah vs Air
     // Air   kuat vs Api,   lemah vs Tanah
@@ -27,9 +32,13 @@ public class Beast {
         this.currentHP = maxHP;
         this.maxMana = maxMana;
         this.currentMana = maxMana;
-        this.attack = attack;
+        this.attack  = attack;
         this.defense = defense;
-        this.speed = speed;
+        this.speed   = speed;
+        // Simpan base stats untuk reset setelah battle
+        this.baseAttack  = attack;
+        this.baseDefense = defense;
+        this.baseSpeed   = speed;
     }
 
     public void takeDamage(int damage) {
@@ -53,8 +62,28 @@ public class Beast {
     }
 
     public void reset() {
-        this.currentHP = maxHP;
+        this.currentHP   = maxHP;
         this.currentMana = maxMana;
+        // Kembalikan stat ke nilai base (dibersihkan dari debuff/bonus map)
+        this.attack  = baseAttack;
+        this.defense = baseDefense;
+        this.speed   = baseSpeed;
+    }
+
+    // ── Stat modifier untuk efek map ─────────────────────────────────────────
+    /** Kalikan ATK dengan multiplier (misal 0.7 = -30%, 1.15 = +15%). Min 1. */
+    public void multiplyAttack(float mult) {
+        this.attack = Math.max(1, Math.round(this.attack * mult));
+    }
+
+    /** Kalikan DEF dengan multiplier. Min 0. */
+    public void multiplyDefense(float mult) {
+        this.defense = Math.max(0, Math.round(this.defense * mult));
+    }
+
+    /** Kalikan SPD dengan multiplier. Min 1. */
+    public void multiplySpeed(float mult) {
+        this.speed = Math.max(1, Math.round(this.speed * mult));
     }
 
     public double getElementMultiplier(String targetElement) {

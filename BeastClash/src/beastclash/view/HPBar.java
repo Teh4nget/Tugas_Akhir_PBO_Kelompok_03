@@ -3,58 +3,70 @@ package beastclash.view;
 import javax.swing.*;
 import java.awt.*;
 
+/**
+ * HPBar – custom JPanel yang menampilkan bar HP atau Mana dengan label nilai.
+ *
+ * Konstruktor: HPBar(label, current, max, barColor)
+ * Update      : update(current, max)
+ */
 public class HPBar extends JPanel {
-    private int current, max;
-    private Color fillColor;
-    private String label;
 
-    public HPBar(String label, int current, int max, Color fillColor) {
-        this.label = label;
-        this.current = current;
-        this.max = max;
-        this.fillColor = fillColor;
-        setPreferredSize(new Dimension(180, 18));
+    private final String label;
+    private int current;
+    private int max;
+    private final Color barColor;
+
+    private static final int BAR_HEIGHT = 10;
+    private static final int PREF_W     = 140;
+    private static final int PREF_H     = 22;
+
+    public HPBar(String label, int current, int max, Color barColor) {
+        this.label    = label;
+        this.current  = current;
+        this.max      = max;
+        this.barColor = barColor;
         setOpaque(false);
+        setPreferredSize(new Dimension(PREF_W, PREF_H));
     }
 
+    /** Perbarui nilai dan repaint. */
     public void update(int current, int max) {
-        this.current = current;
-        this.max = max;
+        this.current = Math.max(0, current);
+        this.max     = Math.max(1, max);
         repaint();
     }
 
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        Graphics2D g2 = (Graphics2D) g;
+        Graphics2D g2 = (Graphics2D) g.create();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        int w = getWidth(), h = getHeight();
 
-        // Background track
-        g2.setColor(new Color(60, 60, 60));
-        g2.fillRoundRect(0, 2, w, h - 4, 8, 8);
+        int w = getWidth();
+        int barY = PREF_H - BAR_HEIGHT - 2;
 
-        // Fill
-        double ratio = max > 0 ? (double) current / max : 0;
-        int fillW = (int)(w * ratio);
-        if (fillW > 0) {
-            // Color transition: green > yellow > red
-            Color c = ratio > 0.5 ? fillColor :
-                      ratio > 0.25 ? new Color(220, 180, 0) :
-                      new Color(200, 50, 50);
-            g2.setColor(c);
-            g2.fillRoundRect(0, 2, fillW, h - 4, 8, 8);
+        // Label + angka
+        g2.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        g2.setColor(Color.WHITE);
+        String txt = label + ": " + current + "/" + max;
+        g2.drawString(txt, 0, barY - 2);
 
-            // Shine
-            g2.setColor(new Color(255, 255, 255, 60));
-            g2.fillRoundRect(2, 3, fillW - 4, (h - 8) / 2, 4, 4);
+        // Background bar (abu gelap)
+        g2.setColor(new Color(50, 50, 50));
+        g2.fillRoundRect(0, barY, w, BAR_HEIGHT, 4, 4);
+
+        // Fill bar
+        if (max > 0 && current > 0) {
+            int fw = (int)((double) current / max * w);
+            // Gradasi warna: makin rendah makin merah
+            Color fillColor = barColor;
+            if (barColor.getGreen() > 100 && (double) current / max < 0.3) {
+                fillColor = new Color(200, 60, 60); // merah saat kritis
+            }
+            g2.setColor(fillColor);
+            g2.fillRoundRect(0, barY, fw, BAR_HEIGHT, 4, 4);
         }
 
-        // Label
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 10));
-        g2.setColor(Color.WHITE);
-        String text = label + ": " + current + "/" + max;
-        FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(text, (w - fm.stringWidth(text)) / 2, h / 2 + fm.getAscent() / 2 - 1);
+        g2.dispose();
     }
 }

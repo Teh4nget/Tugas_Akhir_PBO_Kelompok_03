@@ -1,5 +1,6 @@
 package beastclash.view;
 
+import beastclash.audio.SoundManager;
 import javax.swing.*;
 import java.awt.*;
 
@@ -8,77 +9,109 @@ public class MainFrame extends JFrame {
     private CardLayout cardLayout;
     private JPanel mainContainer;
 
-    private static final String SCREEN_STORY  = "STORY";
-    private static final String SCREEN_MENU   = "MENU";
-    private static final String SCREEN_MAP    = "MAP";
-    private static final String SCREEN_BEAST  = "BEAST";
-    private static final String SCREEN_BATTLE = "BATTLE";
+    public static final String SCREEN_LOGIN  = "LOGIN";
+    public static final String SCREEN_STORY  = "STORY";
+    public static final String SCREEN_MENU   = "MENU";
+    public static final String SCREEN_MAP    = "MAP";
+    public static final String SCREEN_BEAST  = "BEAST";
+    public static final String SCREEN_BATTLE = "BATTLE";
+    public static final String SCREEN_GACHA  = "GACHA";
+
+    // Ukuran tetap per screen agar tidak berantakan
+    private static final Dimension SIZE_LOGIN  = new Dimension(520, 520);
+    private static final Dimension SIZE_STORY  = new Dimension(600, 480);
+    private static final Dimension SIZE_MENU   = new Dimension(480, 560);
+    private static final Dimension SIZE_MAP    = new Dimension(480, 560);
+    private static final Dimension SIZE_BEAST  = new Dimension(620, 580);
+    private static final Dimension SIZE_BATTLE = new Dimension(820, 580);
+    private static final Dimension SIZE_GACHA  = new Dimension(520, 520);
 
     public MainFrame() {
         setTitle("Beast Clash");
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setResizable(false);
 
-        cardLayout = new CardLayout();
+        cardLayout    = new CardLayout();
         mainContainer = new JPanel(cardLayout);
-
-        // Mulai dari story intro
-        mainContainer.add(new StoryIntroPanel(this), SCREEN_STORY);
-        mainContainer.add(new MainMenuPanel(this),   SCREEN_MENU);
-
         setContentPane(mainContainer);
-        pack();
-        setLocationRelativeTo(null);
-        cardLayout.show(mainContainer, SCREEN_STORY);
+
+        // Tampilkan login sebagai layar pertama
+        switchTo(SCREEN_LOGIN, new LoginPanel(this), SIZE_LOGIN);
+    }
+
+    // =========================================================================
+    //  Public navigation methods
+    // =========================================================================
+    public void showLogin() {
+        switchTo(SCREEN_LOGIN, new LoginPanel(this), SIZE_LOGIN);
     }
 
     public void showStory() {
-        replacePanel(new StoryIntroPanel(this), SCREEN_STORY);
-        setSize(600, 480);
-        cardLayout.show(mainContainer, SCREEN_STORY);
-        setLocationRelativeTo(null);
+        switchTo(SCREEN_STORY, new StoryIntroPanel(this), SIZE_STORY);
     }
 
     public void showMainMenu() {
-        replacePanel(new MainMenuPanel(this), SCREEN_MENU);
-        cardLayout.show(mainContainer, SCREEN_MENU);
-        pack();
-        setLocationRelativeTo(null);
+        SoundManager.getInstance().playBGM("MENU");
+        switchTo(SCREEN_MENU, new MainMenuPanel(this), SIZE_MENU);
     }
 
     public void showMapSelect() {
-        replacePanel(new MapSelectPanel(this), SCREEN_MAP);
-        cardLayout.show(mainContainer, SCREEN_MAP);
-        pack();
-        setLocationRelativeTo(null);
+        switchTo(SCREEN_MAP, new MapSelectPanel(this), SIZE_MAP);
     }
 
     public void showBeastSelect() {
-        replacePanel(new BeastSelectPanel(this), SCREEN_BEAST);
-        cardLayout.show(mainContainer, SCREEN_BEAST);
-        pack();
-        setLocationRelativeTo(null);
+        switchTo(SCREEN_BEAST, new BeastSelectPanel(this), SIZE_BEAST);
     }
 
     public void showBattle() {
-        replacePanel(new BattlePanel(this), SCREEN_BATTLE);
-        cardLayout.show(mainContainer, SCREEN_BATTLE);
-        setSize(820, 560);
+        SoundManager.getInstance().playBGM("BATTLE");
+        switchTo(SCREEN_BATTLE, new BattlePanel(this), SIZE_BATTLE);
+    }
+
+    public void showGacha() {
+        switchTo(SCREEN_GACHA, new GachaPanel(this), SIZE_GACHA);
+    }
+
+    // =========================================================================
+    //  Core switch logic  –  HAPUS semua panel lama, tambah baru, resize, show
+    // =========================================================================
+    private void switchTo(String screenName, JPanel panel, Dimension size) {
+        // 1. Hapus semua komponen lama agar tidak menumpuk
+        mainContainer.removeAll();
+
+        // 2. Set preferred size panel agar pack() bekerja benar
+        panel.setPreferredSize(size);
+
+        // 3. Tambahkan HANYA satu panel ke container
+        mainContainer.add(panel, screenName);
+
+        // 4. Paksa CardLayout menampilkan panel ini
+        cardLayout.show(mainContainer, screenName);
+
+        // 5. Resize window ke ukuran yang ditentukan
+        //    Hitung insets (title bar + border) agar konten pas
+        Insets insets = getInsets();
+        int w = size.width  + insets.left + insets.right;
+        int h = size.height + insets.top  + insets.bottom;
+        setSize(w, h);
+
+        // 6. Refresh layout
+        mainContainer.revalidate();
+        mainContainer.repaint();
+
+        // 7. Tengahkan window di layar
         setLocationRelativeTo(null);
     }
 
-    private void replacePanel(JPanel panel, String name) {
-        mainContainer.add(panel, name);
-    }
-
+    // =========================================================================
+    //  Entry point
+    // =========================================================================
     public static void main(String[] args) {
-        try {
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception ignored) {}
-
+        try { UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); }
+        catch (Exception ignored) {}
         SwingUtilities.invokeLater(() -> {
-            MainFrame frame = new MainFrame();
-            frame.setVisible(true);
+            MainFrame f = new MainFrame();
+            f.setVisible(true);
         });
     }
 }

@@ -1,6 +1,8 @@
 package beastclash.controller;
 
+import beastclash.data.BeastData;
 import beastclash.data.MapData;
+import beastclash.database.DatabaseManager;
 import beastclash.model.Beast;
 import beastclash.model.GameMap;
 import java.util.ArrayList;
@@ -17,11 +19,17 @@ public class GameState {
     private int activeBeastIndex;
     private int activeEnemyIndex;
 
+    // Auth & progress
+    private int currentUserId = -1;
+
+    // Cache owned beast IDs agar tidak query DB berulang kali
+    private List<Integer> cachedOwnedBeastIds = null;
+
     private GameState() {
         maps = MapData.getMaps();
         playerTeam = new ArrayList<>();
-        enemyTeam = new ArrayList<>();
-        currentLevel = 1;
+        enemyTeam  = new ArrayList<>();
+        currentLevel     = 1;
         activeBeastIndex = 0;
         activeEnemyIndex = 0;
     }
@@ -31,6 +39,93 @@ public class GameState {
         return instance;
     }
 
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    public int getCurrentUserId() { return currentUserId; }
+
+    public void setCurrentUserId(int uid) {
+        this.currentUserId = uid;
+        // Reset cache saat user berganti
+        this.cachedOwnedBeastIds = null;
+    }
+
+    // ── Invalidate cache (dipanggil setelah gacha unlock beast baru) ──────────
+    public void invalidateBeastCache() {
+        cachedOwnedBeastIds = null;
+    }
+
+    /**
+     * Load map progress + owned beasts dari DB setelah login.
+     * FIX: method ini kini juga me-reset maps agar progress benar-benar
+     * dimuat ulang dari DB, mencegah data lama tersisa di memori.
+     */
+    public void loadProgressFromDB() {
+        if (currentUserId <= 0) return;
+        DatabaseManager db = DatabaseManager.getInstance();
+        if (!db.isConnected()) return;
+
+        // Reset maps ke kondisi awal sebelum load
+        maps = MapData.getMaps();
+
+        // Load map progress dari DB
+        int[][] prog = db.getMapProgress(currentUserId);
+        for (int i = 0; i < maps.size() && i < prog.length; i++) {
+            GameMap m = maps.get(i);
+            m.setUnlocked(prog[i][1] == 1);
+            // FIX: gunakan setCompletedLevels langsung (lebih aman, tidak ada loop)
+            m.setCompletedLevels(prog[i][0]);
+        }
+
+        // Load & cache owned beast IDs
+        cachedOwnedBeastIds = db.getOwnedBeastIds(currentUserId);
+    }
+
+    /** Simpan progress map ke DB setelah level selesai. */
+    public void saveMapProgressToDB() {
+        if (currentUserId <= 0) return;
+        DatabaseManager db = DatabaseManager.getInstance();
+        if (!db.isConnected()) return;
+        for (int i = 0; i < maps.size(); i++) {
+            GameMap m = maps.get(i);
+            db.saveMapProgress(currentUserId, i, m.getCompletedLevels(), m.isUnlocked());
+        }
+    }
+
+    /** Tambah telur ke user setelah menang. */
+    public void addEggReward(int amount) {
+        if (currentUserId <= 0) return;
+        DatabaseManager.getInstance().addEggs(currentUserId, amount);
+    }
+
+    // ── Beast ─────────────────────────────────────────────────────────────────
+    /**
+     * Return list beast yang boleh dipilih oleh user (owned).
+     * FIX: gunakan cachedOwnedBeastIds jika tersedia agar konsisten,
+     *      dan tidak query DB berulang kali.
+     */
+    public List<Beast> getAvailableBeasts() {
+        List<Beast> all = BeastData.getAllBeasts();
+        List<Integer> owned;
+
+        if (currentUserId > 0 && DatabaseManager.getInstance().isConnected()) {
+            // Gunakan cache jika ada; jika tidak, query DB dan simpan cache
+            if (cachedOwnedBeastIds == null) {
+                cachedOwnedBeastIds = DatabaseManager.getInstance().getOwnedBeastIds(currentUserId);
+            }
+            owned = cachedOwnedBeastIds;
+        } else {
+            // Offline: semua beast tersedia
+            owned = new ArrayList<>();
+            for (Beast b : all) owned.add(b.getId());
+        }
+
+        List<Beast> available = new ArrayList<>();
+        for (Beast b : all) {
+            if (owned.contains(b.getId())) available.add(b);
+        }
+        return available;
+    }
+
+    // ── Battle reset ──────────────────────────────────────────────────────────
     public void resetBattle() {
         activeBeastIndex = 0;
         activeEnemyIndex = 0;
@@ -40,58 +135,45 @@ public class GameState {
 
     public Beast getActiveBeast() {
         for (int i = activeBeastIndex; i < playerTeam.size(); i++) {
-            if (playerTeam.get(i).isAlive()) {
-                activeBeastIndex = i;
-                return playerTeam.get(i);
-            }
+            if (playerTeam.get(i).isAlive()) { activeBeastIndex = i; return playerTeam.get(i); }
         }
         return null;
     }
 
     public Beast getActiveEnemy() {
         for (int i = activeEnemyIndex; i < enemyTeam.size(); i++) {
-            if (enemyTeam.get(i).isAlive()) {
-                activeEnemyIndex = i;
-                return enemyTeam.get(i);
-            }
+            if (enemyTeam.get(i).isAlive()) { activeEnemyIndex = i; return enemyTeam.get(i); }
         }
         return null;
     }
 
-    public void nextAliveEnemy() {
-        activeEnemyIndex++;
-    }
+    public void nextAliveEnemy() { activeEnemyIndex++; }
 
     public boolean isPlayerDefeated() {
-        for (Beast b : playerTeam) {
-            if (b.isAlive()) return false;
-        }
+        for (Beast b : playerTeam) if (b.isAlive()) return false;
         return true;
     }
 
     public boolean isEnemyDefeated() {
-        for (Beast b : enemyTeam) {
-            if (b.isAlive()) return false;
-        }
+        for (Beast b : enemyTeam) if (b.isAlive()) return false;
         return true;
     }
 
     public void switchActiveBeast(int index) {
-        if (index >= 0 && index < playerTeam.size() && playerTeam.get(index).isAlive()) {
+        if (index >= 0 && index < playerTeam.size() && playerTeam.get(index).isAlive())
             activeBeastIndex = index;
-        }
     }
 
-    // Getters & Setters
-    public List<GameMap> getMaps() { return maps; }
-    public List<Beast> getPlayerTeam() { return playerTeam; }
-    public void setPlayerTeam(List<Beast> team) { this.playerTeam = team; }
-    public List<Beast> getEnemyTeam() { return enemyTeam; }
-    public void setEnemyTeam(List<Beast> team) { this.enemyTeam = team; }
-    public GameMap getSelectedMap() { return selectedMap; }
-    public void setSelectedMap(GameMap map) { this.selectedMap = map; }
-    public int getCurrentLevel() { return currentLevel; }
-    public void setCurrentLevel(int level) { this.currentLevel = level; }
-    public int getActiveBeastIndex() { return activeBeastIndex; }
-    public int getActiveEnemyIndex() { return activeEnemyIndex; }
+    // ── Getters & Setters ─────────────────────────────────────────────────────
+    public List<GameMap> getMaps()            { return maps; }
+    public List<Beast>   getPlayerTeam()      { return playerTeam; }
+    public void setPlayerTeam(List<Beast> t)  { this.playerTeam = t; }
+    public List<Beast>   getEnemyTeam()       { return enemyTeam; }
+    public void setEnemyTeam(List<Beast> t)   { this.enemyTeam = t; }
+    public GameMap getSelectedMap()           { return selectedMap; }
+    public void setSelectedMap(GameMap m)     { this.selectedMap = m; }
+    public int getCurrentLevel()              { return currentLevel; }
+    public void setCurrentLevel(int l)        { this.currentLevel = l; }
+    public int getActiveBeastIndex()          { return activeBeastIndex; }
+    public int getActiveEnemyIndex()          { return activeEnemyIndex; }
 }

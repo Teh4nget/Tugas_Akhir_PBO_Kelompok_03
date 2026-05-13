@@ -1,6 +1,7 @@
 package beastclash.view;
 
 import beastclash.controller.GameState;
+import beastclash.audio.SoundManager;
 import beastclash.data.BeastData;
 import beastclash.model.Beast;
 import beastclash.model.GameMap;
@@ -23,7 +24,7 @@ public class BeastSelectPanel extends JPanel {
 
     public BeastSelectPanel(MainFrame frame) {
         this.frame = frame;
-        this.allBeasts = BeastData.getAllBeasts();
+        this.allBeasts = GameState.getInstance().getAvailableBeasts();
         this.currentMap = GameState.getInstance().getSelectedMap();
         setLayout(new BorderLayout());
         setBackground(new Color(240, 240, 248));
@@ -156,11 +157,16 @@ public class BeastSelectPanel extends JPanel {
         panel.setLayout(new GridLayout(0, cols, 6, 6));
         panel.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        beastCards = new JPanel[allBeasts.size()];
+        // FIX: ukuran array 25 (index 0 tidak dipakai, 1-24 dipakai)
+        // Bug sebelumnya: new JPanel[allBeasts.size()] hanya 7 slot
+        // tapi beast.getId()-1 bisa sampai 23 → ArrayIndexOutOfBounds
+        beastCards = new JPanel[25];
 
         for (Beast beast : filtered) {
             JPanel card = createBeastCard(beast);
-            beastCards[beast.getId() - 1] = card;
+            if (beast.getId() >= 1 && beast.getId() <= 24) {
+                beastCards[beast.getId()] = card;
+            }
             panel.add(card);
         }
 

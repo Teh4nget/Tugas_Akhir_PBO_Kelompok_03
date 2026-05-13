@@ -1,61 +1,66 @@
 package beastclash.view;
 
+import beastclash.audio.SoundManager;
 import beastclash.controller.BattleController;
+import beastclash.controller.BattleController.TurnEntry;
 import beastclash.controller.GameState;
 import beastclash.model.Beast;
 import beastclash.model.GameMap;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
+import java.awt.geom.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+/**
+ * BattlePanel – HSR-style turn-based battle UI.
+ *
+ * Fitur:
+ *  • Turn order bar (seperti HSR) di bagian atas arena — menampilkan urutan giliran semua beast.
+ *  • Multi-enemy: 5 player beast vs N enemy beast (1–5).
+ *  • Player pilih target enemy sebelum menyerang.
+ *  • Enemy turn otomatis dengan delay animasi.
+ *  • Sistem map debuff tetap ada.
+ *  • Blizzard freeze, periodic damage tetap berjalan.
+ */
 public class BattlePanel extends JPanel {
 
-    private MainFrame frame;
-    private GameState state;
-    private BattleController battle;
+    private final MainFrame    frame;
+    private final GameState    state;
+    private final BattleController battle;
+    private final Random       rng = new Random();
 
-    // UI components
-    private BattleArena arenaPanel;
-    private JTextArea battleLog;
-    private JScrollPane logScroll;
+    // ── UI ────────────────────────────────────────────────────────────────────
+    private ActionOrderBar  actionOrderBar;   // turn order strip di atas
+    private BattleArena     arenaPanel;
+    private JTextArea       battleLog;
 
-    // Enemy info
-    private JLabel enemyNameLabel;
-    private HPBar enemyHPBar;
-    private HPBar enemyManaBar;
-    private JLabel enemyElemLabel;
+    // Info panel atas: map + level
+    private JLabel lblMapInfo;
 
-    // Player info
-    private JLabel playerNameLabel;
-    private HPBar playerHPBar;
-    private HPBar playerManaBar;
-    private JLabel playerElemLabel;
+    // Panel stat player aktif (bawah kiri)
+    private JLabel lblPlayerName, lblPlayerElem;
+    private HPBar  hpBarPlayer, mpBarPlayer;
 
-    // Beast switch buttons
-    private JButton[] switchButtons;
+    // Target selector (enemy yang dipilih player)
+    private int    selectedEnemyIdx = 0;
+    private JButton[] enemyTargetBtns;
+    private JPanel    enemyTargetPanel;
 
-    // Action buttons
+    // Tombol aksi
     private JButton btnAttack, btnSkill, btnUltimate, btnRun;
 
+    // Efek map
+    private JLabel  mapEffectLabel;
+    private Timer   mapDamageTimer;
+    private boolean playerFrozen  = false;
+    private Timer   freezeTimer;
+    private int     attackCounter = 0;
+
     private boolean battleEnded = false;
-
-    // ── MAP EFFECT state ──────────────────────────────────────────────────────
-    // Desert / Volcano: periodic damage timer (setiap 3 detik)
-    private Timer mapDamageTimer;
-
-    // Blizzard: freeze state
-    private boolean playerFrozen   = false;   // beast player sedang beku
-    private int     attackCounter  = 0;       // hitung jumlah serangan (player+enemy)
-    private Timer   freezeTimer;              // timer durasi beku (3 detik)
-
-    // Freeze check threshold (per 5 serangan)
-    private static final int FREEZE_CHECK_EVERY = 5;
-
-    // Label status efek map (ditampilkan di atas panel aksi)
-    private JLabel mapEffectLabel;
-    private final Random rng = new Random();
+    private boolean enemyTurnPending = false; // mencegah klik ganda saat enemy turn
 
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -63,393 +68,309 @@ public class BattlePanel extends JPanel {
         this.frame  = frame;
         this.state  = GameState.getInstance();
         this.battle = new BattleController();
-        setLayout(new BorderLayout());
-        setBackground(new Color(30, 30, 50));
+        setLayout(new BorderLayout(4, 4));
+        setBackground(new Color(18, 18, 35));
+        setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+
         buildUI();
-        refreshBattleState();
-        startMapEffects();   // aktifkan efek map setelah UI siap
-    }
 
-    // =========================================================================
-    //  MAP EFFECT – inisialisasi
-    // =========================================================================
-    private void startMapEffects() {
-        GameMap map = state.getSelectedMap();
-        if (map == null) return;
+        // Inisialisasi turn queue SETELAH UI siap
+        battle.initTurnQueue();
+        applyMapDebuffs();
+        startMapEffects();
 
-        String mapName = map.getName();
-
-        // Tulis info efek ke log saat pertama kali
-        switch (mapName) {
-            case "Desert":
-                addLog("🌵 [EFEK MAP – Desert] Panas pasir memberikan 3 damage setiap 3 detik"
-                     + " kepada semua beast (kecuali elemen Tanah)!\n");
-                startPeriodicDamage(3, 3_000, "Tanah",
-                    "🌵 [Desert] Panas terik! %s terkena 3 damage dari pasir!\n",
-                    "🌵 [Desert] %s tahan panas pasir (elemen Tanah).\n");
-                break;
-
-            case "Volcano":
-                addLog("🌋 [EFEK MAP – Volcano] Lahar panas memberikan 5 damage setiap 3 detik"
-                     + " kepada semua beast (kecuali elemen Api)!\n");
-                startPeriodicDamage(5, 3_000, "Api",
-                    "🌋 [Volcano] Lahar menyembur! %s terkena 5 damage dari lahar!\n",
-                    "🌋 [Volcano] %s kebal terhadap lahar (elemen Api).\n");
-                break;
-
-            case "Blizzard":
-                addLog("❄️ [EFEK MAP – Blizzard] Badai beku! Setiap 5 serangan ada chance beast dibekukan.\n"
-                     + "   • Elemen Air: 25% chance beku | Beast lain: 10% chance beku\n"
-                     + "   • Beast yang beku tidak bisa menyerang selama 3 detik.\n");
-                break;
-
-            default:
-                // Grass Land – tidak ada efek khusus
-                break;
-        }
-    }
-
-    /**
-     * Membuat timer yang setiap [intervalMs] ms memberikan [damage] kepada
-     * beast aktif pemain, KECUALI jika elemen beast == [immuneElement].
-     */
-    private void startPeriodicDamage(int damage, int intervalMs,
-                                     String immuneElement,
-                                     String hitMsg, String immuneMsg) {
-        mapDamageTimer = new Timer(intervalMs, e -> {
-            if (battleEnded) { mapDamageTimer.stop(); return; }
-
-            Beast player = state.getActiveBeast();
-            if (player == null || !player.isAlive()) return;
-
-            if (player.getElement().equals(immuneElement)) {
-                // Hanya log sesekali (tiap 9 detik agar tidak spam)
-                // Kita pakai counter sederhana
-            } else {
-                player.takeDamage(damage);
-                addLog(String.format(hitMsg, player.getName()));
-                refreshBattleState();
-                checkPlayerDefeatedFromEffect();
-            }
-        });
-        mapDamageTimer.setInitialDelay(intervalMs);
-        mapDamageTimer.start();
-    }
-
-    /**
-     * Dipanggil setelah setiap serangan (player ATAU enemy) untuk
-     * mengecek efek beku Blizzard.
-     */
-    private void checkBlizzardFreeze() {
-        GameMap map = state.getSelectedMap();
-        if (map == null || !map.getName().equals("Blizzard")) return;
-
-        attackCounter++;
-        if (attackCounter % FREEZE_CHECK_EVERY != 0) return;
-
-        Beast player = state.getActiveBeast();
-        if (player == null || !player.isAlive() || playerFrozen) return;
-
-        // Hitung chance berdasarkan elemen
-        int chance = player.getElement().equals("Air") ? 25 : 10;
-        int roll   = rng.nextInt(100);
-
-        if (roll < chance) {
-            playerFrozen = true;
-            setActionsEnabled(false);
-            addLog("❄️ [Blizzard] " + player.getName() + " DIBEKUKAN oleh badai! "
-                 + "Tidak bisa menyerang selama 3 detik! (roll " + roll + " < " + chance + "%)\n");
-            mapEffectLabel.setText("❄️ " + player.getName() + " BEKU! (3 detik)");
-            mapEffectLabel.setForeground(new Color(100, 200, 255));
-
-            // Beku selama 3 detik
-            freezeTimer = new Timer(3_000, ev -> {
-                playerFrozen = false;
-                if (!battleEnded) {
-                    setActionsEnabled(true);
-                    addLog("❄️ [Blizzard] " + player.getName() + " sudah tidak beku!\n");
-                    mapEffectLabel.setText(getMapEffectLabelText());
-                    mapEffectLabel.setForeground(Color.WHITE);
-                }
-            });
-            freezeTimer.setRepeats(false);
-            freezeTimer.start();
-        }
-    }
-
-    /** Teks default label efek map di UI */
-    private String getMapEffectLabelText() {
-        GameMap map = state.getSelectedMap();
-        if (map == null) return "";
-        switch (map.getName()) {
-            case "Desert":  return "🌵 Desert: -3 HP/3 dtk (imun: Tanah)";
-            case "Volcano": return "🌋 Volcano: -5 HP/3 dtk (imun: Api)";
-            case "Blizzard":return "❄️ Blizzard: beku 10% (Air 25%) per 5 serangan";
-            default:        return "🌿 Grass Land";
-        }
-    }
-
-    /** Cek apakah semua beast player mati akibat efek map */
-    private void checkPlayerDefeatedFromEffect() {
-        if (state.isPlayerDefeated()) {
-            battleEnded = true;
-            setActionsEnabled(false);
-            if (mapDamageTimer != null) mapDamageTimer.stop();
-            addLog("💀 KEKALAHAN! Beast mu tumbang oleh efek map...\n");
-            Timer t = new Timer(2000, e -> showDefeatDialog());
-            t.setRepeats(false);
-            t.start();
-        } else {
-            // Pindah ke beast berikutnya jika aktif mati
-            Beast current = state.getActiveBeast();
-            if (current == null || !current.isAlive()) {
-                for (int i = 0; i < state.getPlayerTeam().size(); i++) {
-                    if (state.getPlayerTeam().get(i).isAlive()) {
-                        state.switchActiveBeast(i);
-                        addLog("🔄 " + state.getPlayerTeam().get(i).getName()
-                             + " maju menggantikan beast yang pingsan!\n");
-                        break;
-                    }
-                }
-                refreshBattleState();
-            }
-        }
+        refreshAll();
+        checkIfEnemyTurn(); // mungkin enemy duluan jika speed lebih tinggi
     }
 
     // =========================================================================
     //  BUILD UI
     // =========================================================================
     private void buildUI() {
-        // === TOP: Enemy info ===
-        add(buildEnemyPanel(), BorderLayout.NORTH);
+        // ── NORTH: Action Order Bar ───────────────────────────────────────────
+        actionOrderBar = new ActionOrderBar();
+        actionOrderBar.setPreferredSize(new Dimension(0, 64));
+        add(actionOrderBar, BorderLayout.NORTH);
 
-        // === CENTER: Arena + Log ===
-        JSplitPane centerSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
-        centerSplit.setDividerSize(4);
-        centerSplit.setResizeWeight(0.55);
-
+        // ── CENTER: Arena full width ──────────────────────────────────────────
         arenaPanel = new BattleArena();
-        centerSplit.setLeftComponent(arenaPanel);
+        add(arenaPanel, BorderLayout.CENTER);
 
-        JPanel logPanel = new JPanel(new BorderLayout());
-        logPanel.setBackground(new Color(20, 20, 40));
-        logPanel.setBorder(BorderFactory.createTitledBorder(
-            BorderFactory.createLineBorder(new Color(100, 100, 160), 1),
-            "LOG PERTEMPURAN", 0, 0,
-            new Font("Segoe UI", Font.BOLD, 11), new Color(180, 180, 220)));
+        // ── SOUTH: Control panel ──────────────────────────────────────────────
+        add(buildSouthPanel(), BorderLayout.SOUTH);
+    }
 
+    private JPanel buildSouthPanel() {
+        JPanel south = new JPanel(new BorderLayout(6, 0));
+        south.setBackground(new Color(18, 18, 35));
+        south.setBorder(BorderFactory.createEmptyBorder(4, 0, 0, 0));
+
+        // ── WEST: Stat player aktif ───────────────────────────────────────────
+        JPanel statPanel = new JPanel(new GridLayout(4, 1, 1, 2));
+        statPanel.setBackground(new Color(26, 26, 48));
+        statPanel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(new Color(60, 60, 120), 1),
+            BorderFactory.createEmptyBorder(6, 8, 6, 8)));
+        statPanel.setPreferredSize(new Dimension(180, 0));
+
+        lblPlayerName = new JLabel("–", SwingConstants.LEFT);
+        lblPlayerName.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        lblPlayerName.setForeground(Color.WHITE);
+
+        lblPlayerElem = new JLabel("", SwingConstants.LEFT);
+        lblPlayerElem.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+
+        hpBarPlayer = new HPBar("HP", 100, 100, new Color(80, 220, 80));
+        mpBarPlayer = new HPBar("MP", 100, 100, new Color(80, 140, 240));
+
+        statPanel.add(lblPlayerName);
+        statPanel.add(lblPlayerElem);
+        statPanel.add(hpBarPlayer);
+        statPanel.add(mpBarPlayer);
+        south.add(statPanel, BorderLayout.WEST);
+
+        // ── CENTER: Target selector + map effect ──────────────────────────────
+        JPanel midPanel = new JPanel(new BorderLayout(0, 3));
+        midPanel.setBackground(new Color(18, 18, 35));
+
+        mapEffectLabel = new JLabel(getMapEffectText(), SwingConstants.CENTER);
+        mapEffectLabel.setFont(new Font("Segoe UI", Font.ITALIC, 10));
+        mapEffectLabel.setForeground(new Color(200, 180, 120));
+        midPanel.add(mapEffectLabel, BorderLayout.NORTH);
+
+        // Target enemy buttons
+        enemyTargetPanel = new JPanel();
+        enemyTargetPanel.setBackground(new Color(18, 18, 35));
+        enemyTargetPanel.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createLineBorder(new Color(180, 60, 60), 1),
+            "TARGET MUSUH", 0, 0,
+            new Font("Segoe UI", Font.BOLD, 9), new Color(200, 100, 100)));
+        buildEnemyTargetButtons();
+        midPanel.add(enemyTargetPanel, BorderLayout.CENTER);
+
+        south.add(midPanel, BorderLayout.CENTER);
+
+        // ── EAST: Action buttons ──────────────────────────────────────────────
+        JPanel actionPanel = new JPanel(new GridLayout(2, 2, 5, 5));
+        actionPanel.setBackground(new Color(18, 18, 35));
+        actionPanel.setPreferredSize(new Dimension(220, 0));
+        actionPanel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 0));
+
+        btnAttack   = makeBtn("⚔ ATTACK",          new Color(190, 55, 55));
+        btnSkill    = makeBtn("✨ SKILL (30MP)",    new Color(55, 100, 200));
+        btnUltimate = makeBtn("💥 ULTIMATE (70MP)", new Color(130, 40, 180));
+        btnRun      = makeBtn("🏃 RUN",             new Color(70, 70, 90));
+
+        // Tooltip informasi tiap tombol aksi
+        btnAttack.setToolTipText("<html><b>⚔ ATTACK</b><br>"
+            + "Serang 1 musuh yang dipilih.<br>"
+            + "Damage = ATK − DEF/2<br>"
+            + "Tidak memerlukan MP.</html>");
+        btnSkill.setToolTipText("<html><b>✨ SKILL</b> — Biaya: 30 MP<br>"
+            + "Serang 1 musuh dengan kekuatan 1.5× ATK.<br>"
+            + "Damage = (ATK × 1.5) − DEF/2<br>"
+            + "Bonus elemen berlaku.</html>");
+        btnUltimate.setToolTipText("<html><b>💥 ULTIMATE</b> — Biaya: 70 MP<br>"
+            + "Serang SEMUA musuh sekaligus!<br>"
+            + "Damage = (ATK × 2) − DEF/3 per musuh<br>"
+            + "Sangat efektif melawan kelompok.</html>");
+        btnRun.setToolTipText("<html><b>🏃 RUN</b><br>"
+            + "Coba kabur dari pertarungan.<br>"
+            + "Peluang berhasil: <b>50%</b><br>"
+            + "Jika gagal, giliran tetap berlanjut.</html>");
+
+        btnAttack  .addActionListener(e -> onPlayerAction("attack"));
+        btnSkill   .addActionListener(e -> onPlayerAction("skill"));
+        btnUltimate.addActionListener(e -> onPlayerAction("ultimate"));
+        btnRun     .addActionListener(e -> onPlayerAction("run"));
+
+        actionPanel.add(btnAttack);
+        actionPanel.add(btnSkill);
+        actionPanel.add(btnUltimate);
+        actionPanel.add(btnRun);
+
+        // ── Toggle LOG button ────────────────────────────────────────────────
+        JButton btnToggleLog = new JButton("📋 LOG");
+        btnToggleLog.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        btnToggleLog.setBackground(new Color(40, 50, 80));
+        btnToggleLog.setForeground(new Color(180, 200, 240));
+        btnToggleLog.setFocusPainted(false);
+        btnToggleLog.setBorderPainted(false);
+        btnToggleLog.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btnToggleLog.setToolTipText("Tampilkan / sembunyikan log battle");
+        btnToggleLog.setPreferredSize(new Dimension(70, 24));
+        btnToggleLog.addActionListener(e -> toggleLogPanel());
+
+        JPanel eastWrap = new JPanel(new BorderLayout(0, 3));
+        eastWrap.setBackground(new Color(18, 18, 35));
+        eastWrap.setPreferredSize(new Dimension(220, 0));
+        eastWrap.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 0));
+        eastWrap.add(btnToggleLog, BorderLayout.NORTH);
+        eastWrap.add(actionPanel, BorderLayout.CENTER);
+        south.add(eastWrap, BorderLayout.EAST);
+
+        // Init battleLog (dipakai oleh floating log window)
         battleLog = new JTextArea();
         battleLog.setEditable(false);
-        battleLog.setFont(new Font("Consolas", Font.PLAIN, 11));
-        battleLog.setBackground(new Color(15, 15, 30));
-        battleLog.setForeground(new Color(200, 220, 200));
+        battleLog.setFont(new Font("Consolas", Font.PLAIN, 10));
+        battleLog.setBackground(new Color(10, 10, 22));
+        battleLog.setForeground(new Color(190, 210, 190));
         battleLog.setLineWrap(true);
         battleLog.setWrapStyleWord(true);
-        battleLog.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+        battleLog.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        logScroll = new JScrollPane(battleLog);
-        logScroll.setBorder(null);
-        logPanel.add(logScroll, BorderLayout.CENTER);
-        centerSplit.setRightComponent(logPanel);
-
-        add(centerSplit, BorderLayout.CENTER);
-
-        // === BOTTOM: Player info + map effect label + Actions ===
-        add(buildBottomPanel(), BorderLayout.SOUTH);
+        return south;
     }
 
-    private JPanel buildEnemyPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBackground(new Color(40, 20, 20));
-        panel.setBorder(BorderFactory.createEmptyBorder(8, 12, 8, 12));
+    // ── Floating log panel ────────────────────────────────────────────────────
+    private JWindow  logWindow;
+    private boolean  logVisible = false;
 
-        GameMap map = state.getSelectedMap();
-        String mapName = map != null ? map.getName() : "?";
-        int level = state.getCurrentLevel();
-        JLabel mapLabel = new JLabel("Map: " + mapName + " | Level " + level, SwingConstants.LEFT);
-        mapLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        mapLabel.setForeground(new Color(180, 160, 100));
+    private void toggleLogPanel() {
+        if (logWindow == null) buildLogWindow();
+        logVisible = !logVisible;
+        logWindow.setVisible(logVisible);
+        if (logVisible) positionLogWindow();
+    }
 
-        JPanel enemyInfo = new JPanel(new GridLayout(4, 1, 2, 2));
-        enemyInfo.setOpaque(false);
+    private void buildLogWindow() {
+        Window owner = SwingUtilities.getWindowAncestor(this);
+        logWindow = new JWindow(owner);
+        logWindow.setLayout(new BorderLayout());
 
-        enemyNameLabel = new JLabel("Enemy", SwingConstants.CENTER);
-        enemyNameLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        enemyNameLabel.setForeground(Color.WHITE);
+        JPanel header = new JPanel(new BorderLayout());
+        header.setBackground(new Color(20, 20, 45));
+        header.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 6));
 
-        enemyElemLabel = new JLabel("", SwingConstants.CENTER);
-        enemyElemLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        JLabel lblTitle = new JLabel("📋 Battle Log");
+        lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        lblTitle.setForeground(new Color(160, 200, 255));
+        header.add(lblTitle, BorderLayout.WEST);
 
-        enemyHPBar  = new HPBar("HP", 100, 100, new Color(80, 200, 80));
-        enemyManaBar = new HPBar("MP", 100, 100, new Color(80, 120, 220));
+        JButton btnClose = new JButton("✕");
+        btnClose.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+        btnClose.setBackground(new Color(20, 20, 45));
+        btnClose.setForeground(new Color(180, 120, 120));
+        btnClose.setBorderPainted(false);
+        btnClose.setFocusPainted(false);
+        btnClose.setContentAreaFilled(false);
+        btnClose.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btnClose.addActionListener(e -> { logVisible = false; logWindow.setVisible(false); });
+        header.add(btnClose, BorderLayout.EAST);
 
-        enemyInfo.add(enemyNameLabel);
-        enemyInfo.add(enemyElemLabel);
-        enemyInfo.add(enemyHPBar);
-        enemyInfo.add(enemyManaBar);
+        JScrollPane scroll = new JScrollPane(battleLog);
+        scroll.setBorder(BorderFactory.createLineBorder(new Color(60, 80, 140), 1));
+        scroll.setPreferredSize(new Dimension(320, 220));
 
-        // Dot indikator tim musuh
-        JPanel enemyTeamPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
-        enemyTeamPanel.setOpaque(false);
-        for (Beast e : state.getEnemyTeam()) {
-            JPanel dot = new JPanel() {
-                @Override protected void paintComponent(Graphics g) {
-                    super.paintComponent(g);
-                    g.setColor(e.isAlive() ? ElementColor.getColor(e.getElement()) : Color.GRAY);
-                    g.fillOval(1, 1, getWidth()-2, getHeight()-2);
-                }
-            };
-            dot.setPreferredSize(new Dimension(14, 14));
-            dot.setOpaque(false);
-            dot.setToolTipText(e.getName());
-            enemyTeamPanel.add(dot);
+        logWindow.add(header, BorderLayout.NORTH);
+        logWindow.add(scroll, BorderLayout.CENTER);
+        logWindow.setSize(320, 250);
+        logWindow.getRootPane().setBorder(
+            BorderFactory.createLineBorder(new Color(80, 100, 180), 1));
+    }
+
+    private void positionLogWindow() {
+        if (logWindow == null) return;
+        try {
+            Point p = this.getLocationOnScreen();
+            Dimension d = this.getSize();
+            logWindow.setLocation(p.x + d.width - 330, p.y + 60);
+        } catch (Exception ignored) {}
+    }
+
+    private void buildEnemyTargetButtons() {
+        enemyTargetPanel.removeAll();
+        List<Beast> enemies = state.getEnemyTeam();
+        enemyTargetBtns = new JButton[enemies.size()];
+        enemyTargetPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 4, 2));
+
+        // Reset target ke enemy pertama yang masih hidup
+        selectedEnemyIdx = 0;
+        for (int i = 0; i < enemies.size(); i++) {
+            if (enemies.get(i).isAlive()) { selectedEnemyIdx = i; break; }
         }
 
-        panel.add(mapLabel, BorderLayout.WEST);
-        panel.add(enemyInfo, BorderLayout.CENTER);
-        panel.add(enemyTeamPanel, BorderLayout.EAST);
-        return panel;
-    }
-
-    private JPanel buildBottomPanel() {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setBackground(new Color(20, 20, 40));
-        panel.setBorder(BorderFactory.createEmptyBorder(6, 8, 6, 8));
-
-        // Player info
-        JPanel playerInfo = new JPanel(new GridLayout(4, 1, 2, 2));
-        playerInfo.setOpaque(false);
-        playerInfo.setPreferredSize(new Dimension(200, 90));
-
-        playerNameLabel = new JLabel("Beast", SwingConstants.LEFT);
-        playerNameLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        playerNameLabel.setForeground(Color.WHITE);
-
-        playerElemLabel = new JLabel("", SwingConstants.LEFT);
-        playerElemLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-
-        playerHPBar  = new HPBar("HP", 100, 100, new Color(80, 200, 80));
-        playerManaBar = new HPBar("MP", 100, 100, new Color(80, 120, 220));
-
-        playerInfo.add(playerNameLabel);
-        playerInfo.add(playerElemLabel);
-        playerInfo.add(playerHPBar);
-        playerInfo.add(playerManaBar);
-
-        // Beast switch buttons
-        JPanel switchPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 0));
-        switchPanel.setBackground(new Color(20, 20, 40));
-        switchPanel.setBorder(BorderFactory.createTitledBorder(
-            BorderFactory.createLineBorder(new Color(80, 80, 120)),
-            "Tim Beast", 0, 0,
-            new Font("Segoe UI", Font.PLAIN, 10), new Color(150, 150, 180)));
-
-        List<Beast> team = state.getPlayerTeam();
-        switchButtons = new JButton[team.size()];
-        for (int i = 0; i < team.size(); i++) {
+        for (int i = 0; i < enemies.size(); i++) {
             final int idx = i;
-            Beast b = team.get(i);
-            JButton sb = new JButton("<html><center><b>" + ElementColor.getEmoji(b.getElement())
-                + "</b><br/><small>" + b.getName().substring(0, Math.min(6, b.getName().length()))
-                + "</small></center></html>");
-            sb.setPreferredSize(new Dimension(68, 50));
-            sb.setFont(new Font("Segoe UI", Font.PLAIN, 9));
-            sb.setBackground(ElementColor.getColor(b.getElement()).darker());
-            sb.setForeground(Color.WHITE);
-            sb.setBorderPainted(false);
-            sb.setFocusPainted(false);
-            sb.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            sb.addActionListener(e -> {
-                if (playerFrozen) {
-                    addLog("❄️ Tidak bisa mengganti beast – sedang beku!\n");
-                    return;
-                }
-                if (team.get(idx).isAlive()) {
-                    state.switchActiveBeast(idx);
-                    addLog("🔄 Berganti ke " + team.get(idx).getName() + "!\n");
-                    refreshBattleState();
-                } else {
-                    addLog("❌ " + team.get(idx).getName() + " sudah pingsan!\n");
-                }
-            });
-            switchButtons[i] = sb;
-            switchPanel.add(sb);
+            Beast e = enemies.get(i);
+            String label = "<html><center>" + ElementColor.getEmoji(e.getElement())
+                + "<br/><small>" + truncate(e.getName(), 7) + "</small></center></html>";
+            JButton btn = new JButton(label);
+            btn.setPreferredSize(new Dimension(58, 44));
+            btn.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+            btn.setFocusPainted(false);
+            btn.setBorderPainted(true);
+            btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            if (e.isAlive()) {
+                Color ec = ElementColor.getColor(e.getElement());
+                btn.setBackground(ec.darker().darker());
+                btn.setForeground(Color.WHITE);
+                btn.addActionListener(ev -> { selectedEnemyIdx = idx; refreshTargetButtons(); });
+            } else {
+                btn.setBackground(new Color(50, 50, 50));
+                btn.setForeground(Color.GRAY);
+                btn.setEnabled(false);
+            }
+            enemyTargetBtns[i] = btn;
+            enemyTargetPanel.add(btn);
         }
-
-        // Action buttons
-        JPanel actionPanel = new JPanel(new BorderLayout(0, 4));
-        actionPanel.setBackground(new Color(20, 20, 40));
-        actionPanel.setPreferredSize(new Dimension(210, 90));
-        actionPanel.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 0));
-
-        // Label efek map
-        mapEffectLabel = new JLabel(getMapEffectLabelText(), SwingConstants.CENTER);
-        mapEffectLabel.setFont(new Font("Segoe UI", Font.ITALIC, 10));
-        mapEffectLabel.setForeground(Color.WHITE);
-        mapEffectLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 2, 0));
-
-        JPanel btnGrid = new JPanel(new GridLayout(2, 2, 6, 6));
-        btnGrid.setBackground(new Color(20, 20, 40));
-
-        btnAttack  = createActionButton("⚔ ATTACK",           new Color(180, 60,  60));
-        btnSkill   = createActionButton("✨ SKILL (25MP)",     new Color(60,  100, 180));
-        btnUltimate= createActionButton("💥 ULTIMATE (60MP)",  new Color(120, 40,  160));
-        btnRun     = createActionButton("🏃 RUN",              new Color(80,  80,  80));
-
-        btnAttack  .addActionListener(e -> performAction("attack"));
-        btnSkill   .addActionListener(e -> performAction("skill"));
-        btnUltimate.addActionListener(e -> performAction("ultimate"));
-        btnRun     .addActionListener(e -> performAction("run"));
-
-        btnGrid.add(btnAttack);
-        btnGrid.add(btnSkill);
-        btnGrid.add(btnUltimate);
-        btnGrid.add(btnRun);
-
-        actionPanel.add(mapEffectLabel, BorderLayout.NORTH);
-        actionPanel.add(btnGrid, BorderLayout.CENTER);
-
-        panel.add(playerInfo,  BorderLayout.WEST);
-        panel.add(switchPanel, BorderLayout.CENTER);
-        panel.add(actionPanel, BorderLayout.EAST);
-        return panel;
+        refreshTargetButtons();
+        enemyTargetPanel.revalidate();
+        enemyTargetPanel.repaint();
     }
 
-    private JButton createActionButton(String text, Color bg) {
-        JButton btn = new JButton("<html><center>" + text + "</center></html>");
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
-        btn.setBackground(bg);
-        btn.setForeground(Color.WHITE);
-        btn.setBorderPainted(false);
-        btn.setFocusPainted(false);
-        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btn.addMouseListener(new MouseAdapter() {
-            public void mouseEntered(MouseEvent e) { btn.setBackground(bg.brighter()); }
-            public void mouseExited(MouseEvent  e) { btn.setBackground(bg); }
-        });
-        return btn;
+    private void refreshTargetButtons() {
+        if (enemyTargetBtns == null) return;
+        List<Beast> enemies = state.getEnemyTeam();
+        for (int i = 0; i < enemyTargetBtns.length; i++) {
+            if (i >= enemies.size()) break;
+            Beast e = enemies.get(i);
+            if (!e.isAlive()) {
+                enemyTargetBtns[i].setEnabled(false);
+                enemyTargetBtns[i].setBackground(new Color(50, 50, 50));
+            } else {
+                boolean sel = (i == selectedEnemyIdx);
+                enemyTargetBtns[i].setBorder(sel
+                    ? BorderFactory.createLineBorder(Color.YELLOW, 2)
+                    : BorderFactory.createLineBorder(new Color(100, 100, 100), 1));
+                Color ec = ElementColor.getColor(e.getElement());
+                enemyTargetBtns[i].setBackground(sel ? ec.darker() : ec.darker().darker());
+            }
+        }
     }
 
     // =========================================================================
-    //  PERFORM ACTION
+    //  PLAYER ACTION
     // =========================================================================
-    private void performAction(String action) {
-        if (battleEnded) return;
+    private void onPlayerAction(String action) {
+        if (battleEnded || enemyTurnPending) return;
 
-        // Blok aksi jika beku
+        TurnEntry cur = battle.getCurrentTurn();
+        if (cur == null || cur.isEnemy) {
+            addLog("⏳ Bukan giliranmu!\n"); return;
+        }
         if (playerFrozen && !action.equals("run")) {
-            addLog("❄️ " + (state.getActiveBeast() != null ? state.getActiveBeast().getName() : "Beast kamu")
-                 + " sedang BEKU dan tidak bisa menyerang!\n");
+            addLog("❄️ " + cur.beast.getName() + " sedang BEKU, tidak bisa menyerang!\n");
             return;
         }
 
         BattleController.BattleResult result;
-        switch (action) {
-            case "attack":   result = battle.performAttack();   break;
-            case "skill":    result = battle.performSkill();    break;
-            case "ultimate": result = battle.performUltimate(); break;
-            case "run":      result = battle.performRun();      break;
-            default:         return;
+        if (action.equals("run")) {
+            result = battle.performRun();
+        } else if (action.equals("ultimate")) {
+            result = battle.performUltimate();
+        } else {
+            // Pastikan target valid
+            List<Beast> enemies = state.getEnemyTeam();
+            if (selectedEnemyIdx >= enemies.size() || !enemies.get(selectedEnemyIdx).isAlive()) {
+                // Auto-pilih target hidup pertama
+                for (int i = 0; i < enemies.size(); i++) {
+                    if (enemies.get(i).isAlive()) { selectedEnemyIdx = i; break; }
+                }
+            }
+            result = action.equals("skill")
+                ? battle.performSkill(selectedEnemyIdx)
+                : battle.performAttack(selectedEnemyIdx);
         }
 
         addLog(result.log);
@@ -458,48 +379,185 @@ public class BattlePanel extends JPanel {
             battleEnded = true;
             stopMapTimers();
             setActionsEnabled(false);
-            addLog("--- Pertarungan berakhir (Kabur) ---\n");
-            Timer t = new Timer(1200, e -> frame.showMapSelect());
-            t.setRepeats(false); t.start();
+            new Timer(1000, e -> frame.showMapSelect()) {{ setRepeats(false); start(); }};
             return;
         }
 
-        // Hitung serangan untuk cek freeze Blizzard
-        // (hanya jika aksi menyerang, bukan run)
-        if (!action.equals("run")) {
-            checkBlizzardFreeze();
-        }
+        checkBlizzardFreeze();
+        refreshAll();
 
-        refreshBattleState();
-        arenaPanel.triggerShake(action.equals("ultimate"));
+        if (result.allEnemyDefeated) { handleVictory(); return; }
+        if (result.allPlayerDefeated) { handleDefeat(); return; }
 
-        if (result.playerFainted) {
-            Beast next = state.getActiveBeast();
-            if (next != null) addLog("🔄 " + next.getName() + " maju ke pertempuran!\n");
-        }
-
-        if (result.allEnemyDefeated) {
-            battleEnded = true;
-            stopMapTimers();
-            setActionsEnabled(false);
-            addLog("🎉 KEMENANGAN! Level " + state.getCurrentLevel() + " selesai!\n");
-            handleVictory();
-            return;
-        }
-
-        if (result.allPlayerDefeated) {
-            battleEnded = true;
-            stopMapTimers();
-            setActionsEnabled(false);
-            addLog("💀 KEKALAHAN! Semua beast mu dikalahkan...\n");
-            Timer t = new Timer(2000, e -> showDefeatDialog());
-            t.setRepeats(false); t.start();
-        }
-
-        refreshBattleState();
+        // Lanjut ke giliran berikutnya (mungkin enemy)
+        scheduleNextTurn();
     }
 
-    /** Hentikan semua timer efek map */
+    // ── Giliran enemy (otomatis dengan delay) ─────────────────────────────────
+    private void scheduleNextTurn() {
+        TurnEntry next = battle.getCurrentTurn();
+        if (next == null || !next.isEnemy) return; // giliran player, tunggu input
+
+        // Enemy turn: jalankan otomatis setelah delay animasi
+        enemyTurnPending = true;
+        setActionsEnabled(false);
+        addLog("━━ Giliran " + next.beast.getName() + " (musuh) ━━\n");
+
+        new Timer(900, e -> {
+            if (battleEnded) return;
+            BattleController.BattleResult res = battle.performEnemyTurn();
+            addLog(res.log);
+            checkBlizzardFreeze();
+            refreshAll();
+            enemyTurnPending = false;
+
+            if (res.allEnemyDefeated) { handleVictory(); return; }
+            if (res.allPlayerDefeated) { handleDefeat(); return; }
+
+            // Setelah enemy selesai, cek apakah masih ada enemy berturut-turut
+            scheduleNextTurn();
+            if (!enemyTurnPending) setActionsEnabled(true);
+        }) {{ setRepeats(false); start(); }};
+    }
+
+    private void checkIfEnemyTurn() {
+        TurnEntry cur = battle.getCurrentTurn();
+        if (cur != null && cur.isEnemy) scheduleNextTurn();
+    }
+
+    // =========================================================================
+    //  MAP EFFECTS
+    // =========================================================================
+    private void applyMapDebuffs() {
+        GameMap map = state.getSelectedMap();
+        if (map == null) return;
+        switch (map.getName()) {
+            case "Hutan Hijau":
+                applyDebuff("Api",    0.80f, 1f,    1f, false);
+                break;
+            case "Desert":
+                applyDebuff("Air",    1f,    0.75f, 1f, false);
+                break;
+            case "Lautan Biru":
+                applyDebuff("Api",    0.70f, 0.80f, 1f, false);
+                applyDebuff("Daun",   1f,    1f,    0.80f, false);
+                break;
+            case "Blizzard":
+                applyDebuff("Api",    0.65f, 0.75f, 1f, false);
+                applyDebuff("Daun",   0.80f, 1f,    1f, false);
+                applyDebuff("Air",    1f,    1.10f, 1f, true);
+                break;
+            case "Volcano":
+                applyDebuff("Air",    0.60f, 0.70f, 1f, false);
+                applyDebuff("Tanah",  1f,    0.80f, 1f, false);
+                applyDebuff("Api",    1.15f, 1f,    1f, true);
+                break;
+            case "Hutan Gelap":
+                applyDebuff("Cahaya", 0.65f, 0.65f, 1f, false);
+                applyDebuff("Gelap",  1.20f, 1.15f, 1f, true);
+                for (String e : new String[]{"Api","Air","Tanah","Daun"})
+                    applyDebuff(e, 1f, 0.90f, 1f, false);
+                break;
+        }
+    }
+
+    private void applyDebuff(String elem, float atk, float def, float spd, boolean isBonus) {
+        List<Beast> team = state.getPlayerTeam();
+        if (team == null) return;
+        for (Beast b : team) {
+            if (!b.getElement().equals(elem)) continue;
+            if (atk != 1f) b.multiplyAttack(atk);
+            if (def != 1f) b.multiplyDefense(def);
+            if (spd != 1f) b.multiplySpeed(spd);
+        }
+    }
+
+    private void startMapEffects() {
+        GameMap map = state.getSelectedMap();
+        if (map == null) return;
+        String n = map.getName();
+
+        switch (n) {
+            case "Hutan Hijau":
+                addLog("🌿 [MAP] Hutan Hijau: beast Api ATK-20%\n"); break;
+            case "Desert":
+                addLog("🌵 [MAP] Desert: -3HP/3dtk (imun:Api) | Air DEF-25%\n");
+                startPeriodicDamage(3, 3000, "Api",
+                    "🌵 [Desert] %s terkena 3 damage dari pasir!\n"); break;
+            case "Lautan Biru":
+                addLog("🌊 [MAP] Lautan: Api ATK/DEF↓ | Daun SPD-20%\n"); break;
+            case "Blizzard":
+                addLog("❄️ [MAP] Blizzard: Api ATK/DEF↓ | Air DEF+10% | Freeze chance\n"); break;
+            case "Volcano":
+                addLog("🌋 [MAP] Volcano: -5HP/3dtk (imun:Api) | Air ATK/DEF↓ | Api ATK+15%\n");
+                startPeriodicDamage(5, 3000, "Api",
+                    "🌋 [Volcano] %s terkena 5 damage dari lahar!\n"); break;
+            case "Hutan Gelap":
+                addLog("🌑 [MAP] Hutan Gelap: Cahaya↓↓ | Gelap↑↑ | Lain DEF-10%\n"); break;
+        }
+    }
+
+    private void startPeriodicDamage(int dmg, int ms, String immune, String msg) {
+        mapDamageTimer = new Timer(ms, e -> {
+            if (battleEnded) { mapDamageTimer.stop(); return; }
+            for (Beast b : state.getPlayerTeam()) {
+                if (b.isAlive() && !b.getElement().equals(immune)) {
+                    b.takeDamage(dmg);
+                    addLog(String.format(msg, b.getName()));
+                }
+            }
+            refreshAll();
+            if (state.isPlayerDefeated()) handleDefeat();
+        });
+        mapDamageTimer.setInitialDelay(ms);
+        mapDamageTimer.start();
+    }
+
+    private void checkBlizzardFreeze() {
+        GameMap map = state.getSelectedMap();
+        if (map == null || !map.getName().equals("Blizzard")) return;
+        attackCounter++;
+        if (attackCounter % 5 != 0) return;
+
+        // Cek semua beast player (yang aktif giliran)
+        TurnEntry cur = battle.getCurrentTurn();
+        if (cur == null || cur.isEnemy || playerFrozen) return;
+        Beast b = cur.beast;
+        int chance = b.getElement().equals("Air") ? 5 : 20; // Air kebal (5%), lain 20%
+        if (rng.nextInt(100) < chance) {
+            playerFrozen = true;
+            setActionsEnabled(false);
+            addLog("❄️ [Blizzard] " + b.getName() + " DIBEKUKAN 3 detik!\n");
+            mapEffectLabel.setText("❄️ " + b.getName() + " BEKU!");
+            mapEffectLabel.setForeground(new Color(100, 200, 255));
+            freezeTimer = new Timer(3000, ev -> {
+                playerFrozen = false;
+                if (!battleEnded) {
+                    setActionsEnabled(true);
+                    addLog("❄️ " + b.getName() + " sudah bebas dari beku!\n");
+                    mapEffectLabel.setText(getMapEffectText());
+                    mapEffectLabel.setForeground(new Color(200, 180, 120));
+                }
+            });
+            freezeTimer.setRepeats(false);
+            freezeTimer.start();
+        }
+    }
+
+    private String getMapEffectText() {
+        GameMap map = state.getSelectedMap();
+        if (map == null) return "";
+        switch (map.getName()) {
+            case "Hutan Hijau": return "🌿 Api ATK-20%";
+            case "Desert":      return "🌵 -3HP/3dtk | Air DEF-25%";
+            case "Lautan Biru": return "🌊 Api↓ Daun SPD-20%";
+            case "Blizzard":    return "❄️ Freeze | Api↓ Air DEF+10%";
+            case "Volcano":     return "🌋 -5HP/3dtk | Air↓ Api ATK+15%";
+            case "Hutan Gelap": return "🌑 Cahaya↓↓ Gelap↑↑";
+            default:            return "";
+        }
+    }
+
     private void stopMapTimers() {
         if (mapDamageTimer != null) mapDamageTimer.stop();
         if (freezeTimer    != null) freezeTimer.stop();
@@ -509,126 +567,138 @@ public class BattlePanel extends JPanel {
     //  VICTORY / DEFEAT
     // =========================================================================
     private void handleVictory() {
+        battleEnded = true;
+        stopMapTimers();
+        setActionsEnabled(false);
+        SoundManager.getInstance().playSFX("VICTORY_SFX");
+        state.addEggReward(1);
+        addLog("🎉 MENANG! +1 🥚 Telur\n");
+
         GameMap map = state.getSelectedMap();
         if (map != null) {
             map.completeLevel();
-            if (map.isCompleted()) {
+            // Cek apakah map ini sudah fully completed → buka map berikutnya
+            if (map.isFullyCompleted()) {
                 List<GameMap> maps = state.getMaps();
                 for (int i = 0; i < maps.size() - 1; i++) {
                     if (maps.get(i) == map && !maps.get(i + 1).isUnlocked()) {
                         maps.get(i + 1).setUnlocked(true);
                         addLog("🗺 Map baru terbuka: " + maps.get(i + 1).getName() + "!\n");
-                        break;
                     }
                 }
             }
+            // FIX: simpan ke DB SETELAH unlock diset, bukan sebelumnya
+            // Sebelumnya saveMapProgressToDB() dipanggil sebelum setUnlocked(true)
+            // sehingga status unlock map berikutnya tidak tersimpan ke DB
+            state.saveMapProgressToDB();
         }
-        Timer t = new Timer(2000, e -> showVictoryDialog(map));
-        t.setRepeats(false); t.start();
+        new Timer(1800, e -> showVictoryDialog(map)) {{ setRepeats(false); start(); }};
+    }
+
+    private void handleDefeat() {
+        battleEnded = true;
+        stopMapTimers();
+        setActionsEnabled(false);
+        addLog("💀 KALAH! Semua beast mu pingsan.\n");
+        new Timer(1800, e -> showDefeatDialog()) {{ setRepeats(false); start(); }};
     }
 
     private void showVictoryDialog(GameMap map) {
-        String msg = "🏆 Selamat! Level " + state.getCurrentLevel() + " selesai!";
-        if (map != null && map.isCompleted())
+        String msg = "🏆 Level " + state.getCurrentLevel() + " selesai!";
+        if (map != null && map.isFullyCompleted())
             msg += "\n🗺 Map " + map.getName() + " telah diselesaikan!";
-        String[] opts = {"Next Level", "Kembali ke Map"};
+        String[] opts = {"Level Berikutnya", "Kembali ke Map"};
         int choice = JOptionPane.showOptionDialog(this, msg, "MENANG!",
             JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
             null, opts, opts[0]);
-        if (choice == 0 && map != null && !map.isCompleted()) {
+        if (choice == 0 && map != null && !map.isFullyCompleted()) {
             state.setCurrentLevel(state.getCurrentLevel() + 1);
+            state.resetBattle();
             frame.showBeastSelect();
         } else {
+            state.resetBattle();
             frame.showMapSelect();
         }
     }
 
     private void showDefeatDialog() {
         String[] opts = {"Coba Lagi", "Kembali ke Map"};
-        int choice = JOptionPane.showOptionDialog(this,
-            "💀 Semua beast mu dikalahkan!\nCoba lagi?", "KALAH",
+        int c = JOptionPane.showOptionDialog(this,
+            "💀 Semua beast mu dikalahkan!", "KALAH",
             JOptionPane.DEFAULT_OPTION, JOptionPane.ERROR_MESSAGE,
             null, opts, opts[0]);
-        if (choice == 0) frame.showBeastSelect();
-        else             frame.showMapSelect();
+        state.resetBattle();
+        if (c == 0) frame.showBeastSelect();
+        else        frame.showMapSelect();
     }
 
     // =========================================================================
     //  REFRESH UI
     // =========================================================================
-    private void refreshBattleState() {
-        Beast player = state.getActiveBeast();
-        Beast enemy  = state.getActiveEnemy();
-
-        if (player != null) {
-            playerNameLabel.setText(player.getName() + (playerFrozen ? " ❄️" : ""));
-            playerElemLabel.setText(ElementColor.getEmoji(player.getElement()) + " " + player.getElement());
-            playerElemLabel.setForeground(ElementColor.getColor(player.getElement()));
-            playerHPBar .update(player.getCurrentHP(),   player.getMaxHP());
-            playerManaBar.update(player.getCurrentMana(), player.getMaxMana());
+    private void refreshAll() {
+        // Stat player aktif giliran (atau beast player pertama yang hidup)
+        TurnEntry cur = battle.getCurrentTurn();
+        Beast showBeast = null;
+        if (cur != null && !cur.isEnemy) {
+            showBeast = cur.beast;
+        } else {
+            for (Beast b : state.getPlayerTeam()) if (b.isAlive()) { showBeast = b; break; }
+        }
+        if (showBeast != null) {
+            lblPlayerName.setText(showBeast.getName() + (playerFrozen ? " ❄️" : ""));
+            lblPlayerElem.setText(ElementColor.getEmoji(showBeast.getElement())
+                + " " + showBeast.getElement());
+            lblPlayerElem.setForeground(ElementColor.getColor(showBeast.getElement()));
+            hpBarPlayer.update(showBeast.getCurrentHP(), showBeast.getMaxHP());
+            mpBarPlayer.update(showBeast.getCurrentMana(), showBeast.getMaxMana());
         }
 
-        if (enemy != null) {
-            enemyNameLabel.setText(enemy.getName());
-            enemyElemLabel.setText(ElementColor.getEmoji(enemy.getElement()) + " " + enemy.getElement());
-            enemyElemLabel.setForeground(ElementColor.getColor(enemy.getElement()));
-            enemyHPBar .update(enemy.getCurrentHP(),   enemy.getMaxHP());
-            enemyManaBar.update(enemy.getCurrentMana(), enemy.getMaxMana());
-        }
+        // Tombol target enemy
+        refreshTargetButtons();
 
-        if (switchButtons != null) {
-            List<Beast> team = state.getPlayerTeam();
-            for (int i = 0; i < switchButtons.length && i < team.size(); i++) {
-                Beast b = team.get(i);
-                switchButtons[i].setEnabled(b.isAlive());
-                switchButtons[i].setBackground(b.isAlive()
-                    ? ElementColor.getColor(b.getElement()).darker() : Color.DARK_GRAY);
-                switchButtons[i].setBorder(i == state.getActiveBeastIndex()
-                    ? BorderFactory.createLineBorder(Color.YELLOW, 2) : null);
-            }
-        }
+        // Turn order bar
+        actionOrderBar.refresh(battle.getTurnQueueSnapshot(), battle.getCurrentTurn());
 
-        if (arenaPanel != null) arenaPanel.updateBeasts(player, enemy);
-        repaint();
+        // Arena
+        arenaPanel.refresh();
+
+        // Highlight giliran
+        if (cur != null) {
+            boolean isPlayerTurn = !cur.isEnemy && !playerFrozen;
+            setActionsEnabled(isPlayerTurn && !battleEnded && !enemyTurnPending);
+        }
     }
 
-    private void addLog(String text) {
-        battleLog.append(text);
+    private void addLog(String s) {
+        battleLog.append(s);
         battleLog.setCaretPosition(battleLog.getDocument().getLength());
     }
 
-    private void setActionsEnabled(boolean enabled) {
-        btnAttack  .setEnabled(enabled);
-        btnSkill   .setEnabled(enabled);
-        btnUltimate.setEnabled(enabled);
-        btnRun     .setEnabled(enabled);
+    private void setActionsEnabled(boolean en) {
+        btnAttack  .setEnabled(en);
+        btnSkill   .setEnabled(en);
+        btnUltimate.setEnabled(en);
+        btnRun     .setEnabled(en);
     }
 
     // =========================================================================
-    //  INNER CLASS – BattleArena (canvas pertempuran)
+    //  ACTION ORDER BAR (HSR-style)
     // =========================================================================
-    class BattleArena extends JPanel {
-        private Beast player, enemy;
-        private int   shakeOffset = 0;
-        private Timer shakeTimer;
+    class ActionOrderBar extends JPanel {
+        private List<TurnEntry> queue = new ArrayList<>();
+        private TurnEntry       current;
 
-        BattleArena() {
-            setBackground(Color.BLACK);
-            setPreferredSize(new Dimension(320, 220));
+        ActionOrderBar() {
+            setBackground(new Color(12, 12, 24));
+            setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 2, 0, new Color(60, 60, 120)),
+                BorderFactory.createEmptyBorder(4, 8, 4, 8)));
         }
 
-        void updateBeasts(Beast p, Beast e) { this.player = p; this.enemy = e; repaint(); }
-
-        void triggerShake(boolean big) {
-            if (shakeTimer != null) shakeTimer.stop();
-            shakeOffset = big ? 8 : 4;
-            shakeTimer  = new Timer(60, null);
-            shakeTimer.addActionListener(e -> {
-                shakeOffset = shakeOffset > 0 ? -shakeOffset + (shakeOffset > 1 ? 1 : 0) : 0;
-                if (shakeOffset == 0) shakeTimer.stop();
-                repaint();
-            });
-            shakeTimer.start();
+        void refresh(List<TurnEntry> q, TurnEntry cur) {
+            this.queue   = new ArrayList<>(q);
+            this.current = cur;
+            repaint();
         }
 
         @Override
@@ -636,230 +706,395 @@ public class BattlePanel extends JPanel {
             super.paintComponent(g);
             Graphics2D g2 = (Graphics2D) g;
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
             int w = getWidth(), h = getHeight();
 
-            // ── Latar map ────────────────────────────────────────────────────
-            drawMapBackground(g2, w, h);
+            // Label "URUTAN GILIRAN"
+            g2.setFont(new Font("Segoe UI", Font.BOLD, 9));
+            g2.setColor(new Color(140, 140, 180));
+            g2.drawString("URUTAN GILIRAN", 4, 12);
 
-            // ── Freeze overlay jika beku ──────────────────────────────────────
-            if (playerFrozen) {
-                g2.setColor(new Color(100, 200, 255, 40));
-                g2.fillRect(0, h / 2 - 30, w / 2 + 40, h / 2 + 30);
-            }
+            if (queue.isEmpty()) return;
 
-            // ── Beast musuh (kanan atas) + shake ─────────────────────────────
-            if (enemy != null) {
-                drawBeast(g2, w - 110 + shakeOffset, 20, 80, 80, enemy, false);
-                drawMiniBar(g2, w - 120 + shakeOffset, 110, 100, 10,
-                    enemy.getCurrentHP(), enemy.getMaxHP(), new Color(220, 80, 80));
-            }
+            int totalBeasts = queue.size();
+            int iconSize    = Math.min(44, (w - 100) / Math.max(totalBeasts, 1));
+            int iconH       = iconSize;
+            int startX      = 80;
+            int centerY     = h / 2 + 4;
 
-            // ── Beast player (kiri bawah) ─────────────────────────────────────
-            if (player != null) {
-                drawBeast(g2, 30, h / 2 - 20, 100, 100, player, true);
-                drawMiniBar(g2, 20, h / 2 + 90, 120, 12,
-                    player.getCurrentHP(),   player.getMaxHP(),   new Color(80, 220, 80));
-                drawMiniBar(g2, 20, h / 2 + 105, 120, 10,
-                    player.getCurrentMana(), player.getMaxMana(), new Color(80, 120, 220));
+            // Garis timeline
+            g2.setColor(new Color(50, 50, 80));
+            g2.setStroke(new BasicStroke(1.5f));
+            g2.drawLine(startX, centerY, w - 10, centerY);
+            g2.setStroke(new BasicStroke(1));
 
-                // Ikon beku di atas beast player
-                if (playerFrozen) {
-                    g2.setFont(new Font("Segoe UI", Font.BOLD, 20));
-                    g2.drawString("❄️", 70, h / 2 - 22);
+            // Gambar ikon setiap beast sesuai urutan
+            for (int i = 0; i < queue.size(); i++) {
+                TurnEntry e = queue.get(i);
+                if (!e.beast.isAlive()) continue;
+
+                int x = startX + i * (iconSize + 6);
+                int y = centerY - iconH / 2;
+
+                boolean isCurrent = (current != null && e == current);
+
+                // Background ikon
+                Color ec = ElementColor.getColor(e.beast.getElement());
+                if (!e.isEnemy) {
+                    g2.setColor(isCurrent
+                        ? new Color(60, 180, 255, 220)
+                        : new Color(30, 100, 160, 180));
+                } else {
+                    g2.setColor(isCurrent
+                        ? new Color(255, 80, 80, 220)
+                        : new Color(120, 30, 30, 180));
                 }
+                g2.fillRoundRect(x, y, iconSize, iconH, 8, 8);
+
+                // Border – highlight giliran aktif
+                if (isCurrent) {
+                    g2.setColor(Color.YELLOW);
+                    g2.setStroke(new BasicStroke(2.5f));
+                    g2.drawRoundRect(x, y, iconSize, iconH, 8, 8);
+                    g2.setStroke(new BasicStroke(1));
+                    // Panah di atas
+                    g2.setColor(Color.YELLOW);
+                    int ax = x + iconSize / 2;
+                    g2.fillPolygon(new int[]{ax-5, ax+5, ax}, new int[]{y-8, y-8, y-2}, 3);
+                } else {
+                    g2.setColor(ec.darker());
+                    g2.drawRoundRect(x, y, iconSize, iconH, 8, 8);
+                }
+
+                // Elemen emoji + nama pendek
+                g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+                g2.setColor(Color.WHITE);
+                String emoji = ElementColor.getEmoji(e.beast.getElement());
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(emoji, x + (iconSize - fm.stringWidth(emoji)) / 2, y + iconH / 2 + 2);
+
+                // Nama (di bawah ikon)
+                g2.setFont(new Font("Segoe UI", Font.PLAIN, 8));
+                g2.setColor(isCurrent ? Color.YELLOW : new Color(200, 200, 200));
+                String shortName = truncate(e.beast.getName(), 6);
+                fm = g2.getFontMetrics();
+                g2.drawString(shortName, x + (iconSize - fm.stringWidth(shortName)) / 2, y + iconH + 10);
+
+                // Tag P/E kecil
+                g2.setFont(new Font("Segoe UI", Font.BOLD, 7));
+                g2.setColor(e.isEnemy ? new Color(255, 150, 150) : new Color(150, 220, 255));
+                g2.drawString(e.isEnemy ? "E" : "P", x + 2, y + 9);
             }
         }
+    }
 
-        /** Gambar latar belakang sesuai map */
-        private void drawMapBackground(Graphics2D g2, int w, int h) {
-            GameMap map = state.getSelectedMap();
-            String mapName = (map != null) ? map.getName() : "";
+    // =========================================================================
+    //  BATTLE ARENA
+    // =========================================================================
+    class BattleArena extends JPanel {
+        private int shakeX = 0, shakeY = 0;
+        private Timer shakeTimer;
 
-            switch (mapName) {
-                case "Desert":
-                    // Langit oranye – pasir
-                    GradientPaint desertSky = new GradientPaint(0, 0, new Color(255, 160, 60),
-                                                                 0, h * 0.6f, new Color(240, 200, 80));
-                    g2.setPaint(desertSky);
-                    g2.fillRect(0, 0, w, (int)(h * 0.65));
-                    g2.setColor(new Color(220, 180, 100));
-                    g2.fillRect(0, (int)(h * 0.65), w, h);
-                    // Dune
-                    g2.setColor(new Color(200, 155, 70));
-                    g2.fillArc(-20, (int)(h * 0.55), 180, 80, 0, 180);
-                    g2.fillArc(w - 120, (int)(h * 0.6), 160, 60, 0, 180);
-                    // Kaktus kecil
-                    g2.setColor(new Color(60, 130, 60));
-                    g2.fillRect(w - 40, (int)(h * 0.45), 8, 30);
-                    g2.fillRect(w - 52, (int)(h * 0.52), 20, 6);
-                    break;
-
-                case "Volcano":
-                    // Langit gelap merah – lahar
-                    GradientPaint volSky = new GradientPaint(0, 0, new Color(60, 10, 10),
-                                                              0, h * 0.6f, new Color(120, 30, 10));
-                    g2.setPaint(volSky);
-                    g2.fillRect(0, 0, w, (int)(h * 0.7));
-                    // Lahar di bawah
-                    g2.setColor(new Color(200, 60, 0));
-                    g2.fillRect(0, (int)(h * 0.7), w, h);
-                    // Gelombang lahar
-                    g2.setColor(new Color(255, 120, 0));
-                    for (int x = 0; x < w; x += 30) {
-                        g2.fillArc(x - 10, (int)(h * 0.68), 40, 20, 0, 180);
-                    }
-                    // Abu beterbangan
-                    g2.setColor(new Color(80, 80, 80, 150));
-                    for (int i = 0; i < 8; i++) {
-                        g2.fillOval((i * 43) % w, (i * 27) % (int)(h * 0.5), 5, 5);
-                    }
-                    break;
-
-                case "Blizzard":
-                    // Langit biru-putih – salju
-                    GradientPaint blizSky = new GradientPaint(0, 0, new Color(180, 210, 240),
-                                                               0, h * 0.6f, new Color(230, 240, 255));
-                    g2.setPaint(blizSky);
-                    g2.fillRect(0, 0, w, (int)(h * 0.7));
-                    g2.setColor(new Color(220, 235, 255));
-                    g2.fillRect(0, (int)(h * 0.7), w, h);
-                    // Salju jatuh (posisi statis berdasarkan waktu)
-                    g2.setColor(new Color(255, 255, 255, 200));
-                    long t = System.currentTimeMillis() / 80;
-                    for (int i = 0; i < 20; i++) {
-                        int sx = (int)((i * 53 + t * 2) % w);
-                        int sy = (int)((i * 31 + t * 3) % h);
-                        g2.fillOval(sx, sy, 4, 4);
-                    }
-                    // Gumpalan salju di tanah
-                    g2.setColor(Color.WHITE);
-                    g2.fillRoundRect(-10, (int)(h * 0.78), 80, 30, 20, 20);
-                    g2.fillRoundRect(w - 100, (int)(h * 0.75), 120, 35, 20, 20);
-                    break;
-
-                default:
-                    // Grass Land – latar gelap default
-                    g2.setColor(new Color(15, 15, 30));
-                    g2.fillRect(0, 0, w, h);
-                    g2.setColor(new Color(40, 40, 60));
-                    g2.fillRect(0, h * 3 / 4, w, h / 4);
-                    g2.setColor(new Color(60, 60, 90));
-                    g2.drawLine(0, h * 3 / 4, w, h * 3 / 4);
-                    g2.setColor(new Color(200, 200, 200, 100));
-                    for (int i = 0; i < 20; i++) {
-                        int sx = (i * 37 + 5) % w;
-                        int sy = (i * 23 + 10) % (h * 3 / 4);
-                        g2.fillOval(sx, sy, 2, 2);
-                    }
-                    break;
-            }
+        BattleArena() {
+            setBackground(Color.BLACK);
+            setMinimumSize(new Dimension(300, 200));
         }
 
-        private void drawBeast(Graphics2D g2, int x, int y, int w, int h, Beast beast, boolean isPlayer) {
-            Color ec = ElementColor.getColor(beast.getElement());
+        void triggerShake(boolean big) {
+            if (shakeTimer != null) shakeTimer.stop();
+            int amp = big ? 8 : 4;
+            final int[] cnt = {0};
+            shakeTimer = new Timer(45, e -> {
+                cnt[0]++;
+                shakeX = (cnt[0] % 2 == 0) ? amp : -amp;
+                shakeY = (cnt[0] % 3 == 0) ? amp / 2 : 0;
+                if (cnt[0] > 6) { shakeX = 0; shakeY = 0; shakeTimer.stop(); }
+                repaint();
+            });
+            shakeTimer.start();
+        }
 
-            // Glow
-            g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 30));
-            g2.fillOval(x - 10, y - 10, w + 20, h + 20);
+        void refresh() { repaint(); }
 
-            // Body
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g;
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int w = getWidth(), h = getHeight();
+            g2.translate(shakeX, shakeY);
+
+            drawBackground(g2, w, h);
+
+            List<Beast> enemies = state.getEnemyTeam();
+            List<Beast> players = state.getPlayerTeam();
+            TurnEntry   cur     = battle.getCurrentTurn();
+
+            // ── Gambar enemy di bagian atas arena ──────────────────────────────
+            int n = enemies.size();
+            int eW = Math.min(70, (w - 20) / Math.max(n, 1));
+            int eH = eW;
+            int eStartX = (w - n * (eW + 8)) / 2;
+            for (int i = 0; i < n; i++) {
+                Beast e = enemies.get(i);
+                int ex = eStartX + i * (eW + 8);
+                int ey = 14;
+                boolean active = (cur != null && cur.isEnemy && cur.teamIndex == i);
+                boolean isTarget = (i == selectedEnemyIdx && e.isAlive());
+                drawBeastSprite(g2, ex, ey, eW, eH, e, false, active, isTarget);
+                // HP mini bar
+                drawMiniBar(g2, ex, ey + eH + 2, eW, 6, e.getCurrentHP(), e.getMaxHP(),
+                    new Color(220, 70, 70));
+            }
+
+            // ── Gambar player di bagian bawah arena ───────────────────────────
+            int p = players.size();
+            int pW = Math.min(72, (w - 20) / Math.max(p, 1));
+            int pH = pW;
+            int pStartX = (w - p * (pW + 6)) / 2;
+            int pY = h - pH - 28;
+            for (int i = 0; i < p; i++) {
+                Beast b = players.get(i);
+                int px = pStartX + i * (pW + 6);
+                boolean active = (cur != null && !cur.isEnemy && cur.teamIndex == i);
+                drawBeastSprite(g2, px, pY, pW, pH, b, true, active, false);
+                drawMiniBar(g2, px, pY + pH + 2, pW, 6, b.getCurrentHP(), b.getMaxHP(),
+                    new Color(70, 220, 70));
+                drawMiniBar(g2, px, pY + pH + 10, pW, 4, b.getCurrentMana(), b.getMaxMana(),
+                    new Color(70, 120, 220));
+            }
+
+            g2.translate(-shakeX, -shakeY);
+        }
+
+        private void drawBeastSprite(Graphics2D g2, int x, int y, int w, int h,
+                                     Beast b, boolean isPlayer,
+                                     boolean isActive, boolean isTarget) {
+            Color ec = ElementColor.getColor(b.getElement());
+
+            if (!b.isAlive()) {
+                // Mati: gambar abu-abu transparan
+                g2.setColor(new Color(80, 80, 80, 100));
+                g2.fillOval(x + w/4, y + h/4, w/2, h/2);
+                g2.setColor(new Color(200, 50, 50));
+                g2.setFont(new Font("Segoe UI", Font.BOLD, 13));
+                g2.drawString("✗", x + w/2 - 5, y + h/2 + 5);
+                // Nama
+                g2.setFont(new Font("Segoe UI", Font.PLAIN, 8));
+                g2.setColor(Color.GRAY);
+                String n = truncate(b.getName(), 7);
+                g2.drawString(n, x + (w - g2.getFontMetrics().stringWidth(n)) / 2, y + h + 14);
+                return;
+            }
+
+            // Glow efek untuk yang sedang giliran
+            if (isActive) {
+                g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 60));
+                g2.fillOval(x - 6, y - 6, w + 12, h + 12);
+            }
+
+            // Target highlight (kuning)
+            if (isTarget && !isPlayer) {
+                g2.setColor(new Color(255, 255, 0, 50));
+                g2.fillOval(x - 4, y - 4, w + 8, h + 8);
+                g2.setColor(Color.YELLOW);
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawOval(x - 4, y - 4, w + 8, h + 8);
+                g2.setStroke(new BasicStroke(1));
+            }
+
+            // Sprite beast (warna elemen)
             g2.setColor(ec);
-            switch (beast.getElement()) {
+            switch (b.getElement()) {
                 case "Api":
-                    int[] fx = {x+w/2, x+w/5, x+w*2/5, x+w/4, x+w*3/4, x+w*3/5, x+w*4/5};
-                    int[] fy = {y, y+h*2/3, y+h/2, y+h, y+h, y+h/2, y+h*2/3};
-                    g2.fillPolygon(fx, fy, fx.length);
+                    g2.fillOval(x + w/4, y + h/3, w/2, h*2/3);
+                    g2.setColor(new Color(255, 200, 50));
+                    g2.fillPolygon(
+                        new int[]{x+w/2, x+w/4, x+w*3/8, x+w/3, x+w*2/3, x+w*5/8, x+w*3/4},
+                        new int[]{y, y+h*2/3, y+h/2, y+h, y+h, y+h/2, y+h*2/3}, 7);
                     break;
                 case "Air":
-                    g2.fillOval(x+w/6, y+h/6, w*2/3, h*2/3);
-                    g2.setColor(ec.darker());
-                    g2.fillArc(x, y+h/3, w, h*2/3, 0, 180);
+                    g2.fillOval(x+w/5, y+h/5, w*3/5, h*3/5);
+                    g2.setColor(new Color(150, 220, 255));
+                    g2.fillArc(x+w/8, y+h/2, w*3/4, h/2, 0, 180);
                     break;
                 case "Tanah":
                     g2.fillRoundRect(x+w/8, y+h/4, w*3/4, h*3/4, 10, 10);
-                    g2.setColor(ec.darker());
+                    g2.setColor(ec.brighter());
                     g2.fillRoundRect(x+w/4, y, w/2, h/2, 8, 8);
                     break;
                 case "Daun":
                     g2.fillOval(x+w/4, y, w/2, h*2/3);
-                    g2.setColor(ec.darker());
+                    g2.setColor(new Color(100, 220, 100));
                     for (int i = 0; i < 3; i++) g2.fillOval(x+i*w/3, y+h/3, w/3, h/3);
                     break;
                 case "Cahaya":
                     drawStar(g2, x+w/2, y+h/2, w/2, h/2, 6);
+                    g2.setColor(new Color(255, 255, 200, 120));
+                    g2.fillOval(x+w/4, y+h/4, w/2, h/2);
                     break;
                 case "Gelap":
                     g2.fillOval(x+w/6, y+h/6, w*2/3, h*2/3);
-                    g2.setColor(new Color(30, 0, 60));
-                    g2.fillOval(x+w/3, y+h/4, w/3, h/3);
+                    g2.setColor(new Color(40, 0, 80));
+                    g2.fillOval(x+w/3, y+h/3, w/3, h/3);
+                    g2.setColor(new Color(180, 0, 255, 100));
+                    g2.setStroke(new BasicStroke(1.5f));
+                    g2.drawOval(x+w/6, y+h/6, w*2/3, h*2/3);
+                    g2.setStroke(new BasicStroke(1));
                     break;
                 default:
                     g2.fillOval(x+w/4, y+h/4, w/2, h/2);
             }
 
             // Mata
-            g2.setColor(Color.WHITE);
+            int eyeY = y + h * 2 / 5;
             if (isPlayer) {
-                g2.fillOval(x+w/3, y+h*2/5, w/8, w/8);
-                g2.fillOval(x+w/2, y+h*2/5, w/8, w/8);
+                g2.setColor(Color.WHITE);
+                g2.fillOval(x+w/3, eyeY, w/7, w/7);
+                g2.fillOval(x+w/2, eyeY, w/7, w/7);
                 g2.setColor(Color.BLACK);
-                g2.fillOval(x+w/3+2, y+h*2/5+2, w/12, w/12);
-                g2.fillOval(x+w/2+2, y+h*2/5+2, w/12, w/12);
+                g2.fillOval(x+w/3+2, eyeY+2, w/10, w/10);
+                g2.fillOval(x+w/2+2, eyeY+2, w/10, w/10);
             } else {
-                g2.fillOval(x+w/3, y+h/3, w/8, w/8);
-                g2.fillOval(x+w/2, y+h/3, w/8, w/8);
+                g2.setColor(Color.WHITE);
+                g2.fillOval(x+w/3, eyeY, w/7, w/7);
+                g2.fillOval(x+w/2, eyeY, w/7, w/7);
                 g2.setColor(Color.RED);
-                g2.fillOval(x+w/3+2, y+h/3+2, w/12, w/12);
-                g2.fillOval(x+w/2+2, y+h/3+2, w/12, w/12);
+                g2.fillOval(x+w/3+2, eyeY+2, w/10, w/10);
+                g2.fillOval(x+w/2+2, eyeY+2, w/10, w/10);
             }
 
-            // Nama
-            g2.setFont(new Font("Segoe UI", Font.BOLD, 9));
-            g2.setColor(Color.WHITE);
-            FontMetrics fm = g2.getFontMetrics();
-            g2.drawString(beast.getName(), x + (w - fm.stringWidth(beast.getName())) / 2, y + h + 12);
-
-            // Overlay pingsan
-            if (!beast.isAlive()) {
-                g2.setColor(new Color(0, 0, 0, 150));
-                g2.fillRoundRect(x, y, w, h, 8, 8);
-                g2.setColor(Color.RED);
-                g2.setFont(new Font("Segoe UI", Font.BOLD, 12));
-                g2.drawString("✗", x + w/2 - 5, y + h/2 + 5);
-            }
-
-            // Overlay beku (hanya beast player)
+            // Beku overlay
             if (isPlayer && playerFrozen) {
-                g2.setColor(new Color(100, 200, 255, 80));
+                g2.setColor(new Color(100, 200, 255, 90));
                 g2.fillRoundRect(x, y, w, h, 8, 8);
-                g2.setColor(new Color(100, 200, 255));
+                g2.setColor(new Color(150, 220, 255));
                 g2.setStroke(new BasicStroke(2));
                 g2.drawRoundRect(x, y, w, h, 8, 8);
                 g2.setStroke(new BasicStroke(1));
             }
+
+            // Nama
+            g2.setFont(new Font("Segoe UI", isActive ? Font.BOLD : Font.PLAIN, 8));
+            g2.setColor(isActive ? Color.YELLOW : Color.WHITE);
+            String nm = truncate(b.getName(), 7);
+            FontMetrics fm = g2.getFontMetrics();
+            g2.drawString(nm, x + (w - fm.stringWidth(nm)) / 2, y + h + 14);
+
+            // Indikator giliran
+            if (isActive) {
+                g2.setColor(Color.YELLOW);
+                g2.fillPolygon(
+                    new int[]{x+w/2-4, x+w/2+4, x+w/2},
+                    new int[]{y-10, y-10, y-4}, 3);
+            }
         }
 
-        private void drawStar(Graphics2D g2, int cx, int cy, int rx, int ry, int points) {
-            int[] xs = new int[points * 2], ys = new int[points * 2];
-            for (int i = 0; i < points * 2; i++) {
-                double angle = Math.PI / points * i - Math.PI / 2;
-                double r = (i % 2 == 0) ? rx : rx / 2;
-                xs[i] = cx + (int)(r * Math.cos(angle));
-                ys[i] = cy + (int)(ry * Math.sin(angle));
+        private void drawStar(Graphics2D g2, int cx, int cy, int rx, int ry, int pts) {
+            int[] xs = new int[pts*2], ys = new int[pts*2];
+            for (int i = 0; i < pts*2; i++) {
+                double a = Math.PI / pts * i - Math.PI / 2;
+                double r = (i%2==0) ? rx : rx/2.2;
+                xs[i] = cx + (int)(r * Math.cos(a));
+                ys[i] = cy + (int)(ry * Math.sin(a));
             }
-            g2.fillPolygon(xs, ys, points * 2);
+            g2.fillPolygon(xs, ys, pts*2);
         }
 
         private void drawMiniBar(Graphics2D g2, int x, int y, int w, int h,
-                                  int current, int max, Color color) {
-            g2.setColor(new Color(40, 40, 40));
-            g2.fillRoundRect(x, y, w, h, 4, 4);
-            if (max > 0 && current > 0) {
-                int fw = (int)((double) current / max * w);
+                                  int cur, int max, Color color) {
+            g2.setColor(new Color(30, 30, 30));
+            g2.fillRoundRect(x, y, w, h, 3, 3);
+            if (max > 0 && cur > 0) {
+                int fw = (int)((double)cur / max * w);
                 g2.setColor(color);
-                g2.fillRoundRect(x, y, fw, h, 4, 4);
+                g2.fillRoundRect(x, y, fw, h, 3, 3);
             }
         }
+
+        private void drawBackground(Graphics2D g2, int w, int h) {
+            GameMap map = state.getSelectedMap();
+            String nm = map != null ? map.getName() : "";
+            switch (nm) {
+                case "Desert":
+                    g2.setPaint(new GradientPaint(0,0,new Color(255,155,50),0,h*0.6f,new Color(235,195,70)));
+                    g2.fillRect(0,0,w,(int)(h*0.65));
+                    g2.setColor(new Color(215,175,90));
+                    g2.fillRect(0,(int)(h*0.65),w,h);
+                    g2.setColor(new Color(195,150,65));
+                    g2.fillArc(-20,(int)(h*0.52),180,80,0,180);
+                    g2.fillArc(w-130,(int)(h*0.58),170,60,0,180);
+                    break;
+                case "Volcano":
+                    g2.setPaint(new GradientPaint(0,0,new Color(50,8,8),0,h*0.6f,new Color(110,25,8)));
+                    g2.fillRect(0,0,w,(int)(h*0.72));
+                    g2.setColor(new Color(190,55,0));
+                    g2.fillRect(0,(int)(h*0.72),w,h);
+                    g2.setColor(new Color(250,115,0));
+                    for (int x=0;x<w;x+=28) g2.fillArc(x-8,(int)(h*0.70),36,18,0,180);
+                    break;
+                case "Blizzard":
+                    g2.setPaint(new GradientPaint(0,0,new Color(170,205,238),0,h*0.6f,new Color(225,238,255)));
+                    g2.fillRect(0,0,w,(int)(h*0.72));
+                    g2.setColor(new Color(215,232,252));
+                    g2.fillRect(0,(int)(h*0.72),w,h);
+                    g2.setColor(new Color(255,255,255,180));
+                    long t = System.currentTimeMillis()/70;
+                    for (int i=0;i<24;i++) {
+                        int sx=(int)((i*61+t*2)%w), sy=(int)((i*37+t*4)%h);
+                        g2.fillOval(sx,sy,4,4);
+                    }
+                    break;
+                case "Lautan Biru":
+                    g2.setPaint(new GradientPaint(0,0,new Color(20,80,160),0,h*0.6f,new Color(30,120,200)));
+                    g2.fillRect(0,0,w,(int)(h*0.65));
+                    g2.setColor(new Color(10,60,140));
+                    g2.fillRect(0,(int)(h*0.65),w,h);
+                    g2.setColor(new Color(80,180,255,100));
+                    long tw = System.currentTimeMillis()/120;
+                    for (int i=0;i<5;i++) g2.fillArc((int)((i*80+tw*3)%w),(int)(h*0.60),60,20,0,180);
+                    break;
+                case "Hutan Hijau":
+                    g2.setPaint(new GradientPaint(0,0,new Color(30,80,30),0,h*0.5f,new Color(50,130,50)));
+                    g2.fillRect(0,0,w,(int)(h*0.65));
+                    g2.setColor(new Color(30,100,30));
+                    g2.fillRect(0,(int)(h*0.65),w,h);
+                    g2.setColor(new Color(20,70,20,180));
+                    for (int i=0;i<5;i++) g2.fillOval(i*w/5-10,(int)(h*0.4),50,80);
+                    break;
+                case "Hutan Gelap":
+                    g2.setPaint(new GradientPaint(0,0,new Color(5,0,15),0,h*0.6f,new Color(15,5,30)));
+                    g2.fillRect(0,0,w,(int)(h*0.7));
+                    g2.setColor(new Color(10,5,25));
+                    g2.fillRect(0,(int)(h*0.7),w,h);
+                    g2.setColor(new Color(80,0,160,80));
+                    for (int i=0;i<8;i++) g2.fillOval((i*43)%w,(i*29)%(int)(h*0.5),8,8);
+                    break;
+                default:
+                    g2.setColor(new Color(14,14,28));
+                    g2.fillRect(0,0,w,h);
+                    g2.setColor(new Color(35,35,60));
+                    g2.fillRect(0,h*3/4,w,h/4);
+            }
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    private JButton makeBtn(String text, Color bg) {
+        JButton b = new JButton("<html><center>" + text + "</center></html>");
+        b.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        b.setBackground(bg);
+        b.setForeground(Color.WHITE);
+        b.setBorderPainted(false);
+        b.setFocusPainted(false);
+        b.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        b.addMouseListener(new MouseAdapter() {
+            public void mouseEntered(MouseEvent e) { b.setBackground(bg.brighter()); }
+            public void mouseExited (MouseEvent e) { b.setBackground(bg); }
+        });
+        return b;
+    }
+
+    private static String truncate(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max - 1) + "…";
     }
 }
