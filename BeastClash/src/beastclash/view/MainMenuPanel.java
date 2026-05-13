@@ -126,10 +126,11 @@ public class MainMenuPanel extends JPanel {
             "║       BEAST CLASH            ║\n" +
             "║       Tim Pengembang         ║\n" +
             "╠══════════════════════════════╣\n" +
-            "║  • Ahmad Fauzi               ║\n" +
-            "║  • Budi Santoso              ║\n" +
-            "║  • Citra Dewi                ║\n" +
-            "║  • Dian Pratama              ║\n" +
+            "║  • Agung Wahyu Niti Wijaya               ║\n" +
+            "║  • Raga Deva Bela Negara              ║\n" +
+            "║  • Ahmad Dziqro Attayu Setio Damar                ║\n" +
+            "║  • Nova Salwa Safitri              ║\n" +
+            "║  • Septi Lailatul Fitria              ║\n" +
             "╠══════════════════════════════╣\n" +
             "║  © 2025 Beast Clash Team     ║\n" +
             "╚══════════════════════════════╝";
