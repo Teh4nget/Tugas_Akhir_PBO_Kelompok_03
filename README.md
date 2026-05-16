@@ -70,7 +70,7 @@ git clone https://github.com/username/BeastClash.git](https://github.com/Teh4nge
 cd BeastClash
 ```
 
-### 1. Siapkan Driver MySQL
+### 2. Siapkan Driver MySQL
 
 ```
 lib/mysql-connector-j-9.x.x.jar
@@ -78,7 +78,7 @@ lib/mysql-connector-j-9.x.x.jar
 
 Sudah ada di folder lib, Jika belum ada bisa download dari https://dev.mysql.com/downloads/connector/j/ lalu letakkan di folder `lib/`. 
 
-### 2. Siapkan Database
+### 3. Siapkan Database
 
 1. Jalankan **XAMPP** → Start **Apache** & **MySQL**
 2. Buka **phpMyAdmin** → Buat database baru bernama **`beastclash`** (kosong)
@@ -87,7 +87,7 @@ Sudah ada di folder lib, Jika belum ada bisa download dari https://dev.mysql.com
    - `map_progress` — progres tiap map per user
    - `beast_owned` — daftar Beast yang dimiliki per user
 
-### 3. Buka di NetBeans
+### 4. Buka di NetBeans
 
 ```
 File → Open Project → pilih folder BeastClash
@@ -96,7 +96,7 @@ Pastikan lib/mysql-connector-j-9.x.x.jar terdaftar
 Tekan F6 untuk menjalankan
 ```
 
-### 4. Mode Offline (Tanpa Database)
+### 5. Mode Offline (Tanpa Database)
 
 Jika MySQL tidak aktif, game otomatis masuk **mode offline**: Beast starter tersedia, gacha menggunakan telur in-memory, dan progres tidak disimpan antar sesi.
 
