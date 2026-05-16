@@ -64,6 +64,12 @@ Game ini dibangun sepenuhnya dengan **Java (Swing)** dan menggunakan **MySQL (XA
 
 ## Cara Setup
 
+### 1. Clone Repository
+```
+git clone https://github.com/username/BeastClash.git](https://github.com/Teh4nget/Tugas_Akhir_PBO_Kelompok_03.git
+cd BeastClash
+```
+
 ### 1. Siapkan Driver MySQL
 
 ```
