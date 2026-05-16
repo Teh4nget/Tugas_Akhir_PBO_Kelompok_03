@@ -14,8 +14,8 @@ import java.util.List;
  *   beast_owned : id, user_id, beast_id
  *
  * Cara pakai XAMPP:
- *   1. Jalankan XAMPP → Start Apache & MySQL
- *   2. Buka phpMyAdmin → buat database bernama "beastclash"
+ *   1. Jalankan XAMPP -> Start Apache & MySQL
+ *   2. Buka phpMyAdmin -> buat database bernama "beastclash"
  *   3. Driver MySQL Connector/J sudah di-bundle atau tambahkan
  *      mysql-connector-j-8.x.x.jar ke Libraries project NetBeans.
  */
@@ -259,8 +259,10 @@ public class DatabaseManager {
     //  BEAST OWNED
     // =========================================================================
     private void initStarterBeasts(int userId) throws SQLException {
-        // Beast starter: id 1,2,5,6,9,13,17 (satu dari setiap elemen + 1 bonus)
-        int[] starters = {1, 2, 5, 6, 9, 13, 17};
+        // Beast starter: 1=Blazefang, 3=Ignarox (Api), 5=Aquarion (Air),
+        //                9=Bedrock Titan (Tanah), 13=Floravine (Daun)
+        // + bonus: 2=Cinderion, 6=Marivex, 17=Aetherion
+        int[] starters = {1, 2, 3, 5, 6, 9, 13, 17};
         for (int bid : starters) {
             PreparedStatement ps = conn.prepareStatement(
                 "INSERT IGNORE INTO beast_owned (user_id, beast_id) VALUES (?,?)");

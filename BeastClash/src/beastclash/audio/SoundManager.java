@@ -2,7 +2,7 @@ package beastclash.audio;
 
 import javax.sound.sampled.*;
 import java.io.*;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 /**
@@ -35,18 +35,45 @@ public class SoundManager {
 
     private Clip   bgmClip    = null;
     private String currentBgm = "";
-    private final Map<String, byte[]> sfxCache = new HashMap<>();
+    private final Map<String, byte[]> sfxCache = new ConcurrentHashMap<>();
 
     private SoundManager() {
-        // Deteksi apakah audio tersedia (headless / server environment bisa tidak ada)
-        boolean avail = true;
+        // Deteksi apakah Clip line benar-benar tersedia di sistem ini
+        boolean avail = false;
         try {
-            AudioSystem.getMixerInfo(); // throws jika tidak ada audio
+            Mixer.Info[] mixers = AudioSystem.getMixerInfo();
+            if (mixers == null || mixers.length == 0) {
+                System.err.println("[Audio] Tidak ada audio device ditemukan.");
+            } else {
+                // Coba buat Clip kecil (silence) untuk verifikasi
+                AudioFormat fmt = new AudioFormat(44100, 16, 1, true, false);
+                byte[] silence = new byte[2048];
+                Clip testClip = AudioSystem.getClip();
+                testClip.open(new AudioInputStream(
+                    new java.io.ByteArrayInputStream(silence), fmt, silence.length / 2L));
+                testClip.close();
+                avail = true;
+            }
         } catch (Exception e) {
-            avail = false;
-            System.err.println("[Audio] Perangkat audio tidak tersedia: " + e.getMessage());
+            String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            System.err.println("[Audio] Audio tidak tersedia: " + msg);
         }
         audioAvailable = avail;
+        if (avail) {
+            System.out.println("[Audio] Audio siap.");
+            // Pre-build semua SFX di background agar tidak ada race condition
+            // saat pertama kali dipanggil dari thread berbeda
+            Thread preload = new Thread(() -> {
+                String[] names = {"ATTACK","SKILL","ULTIMATE","HURT","VICTORY_SFX",
+                                  "DEFEAT","GACHA","FREEZE","CLICK","RUN","EGG","UNLOCK"};
+                for (String n : names) {
+                    try { sfxCache.put(n, buildSFX(n)); }
+                    catch (Exception e) { System.err.println("[Audio] Preload gagal: " + n); }
+                }
+            }, "SFX-Preload");
+            preload.setDaemon(true);
+            preload.start();
+        }
     }
 
     public static SoundManager getInstance() {
@@ -55,7 +82,7 @@ public class SoundManager {
     }
 
     // ── BGM ──────────────────────────────────────────────────────────────────
-    public void playBGM(String track) {
+    public synchronized void playBGM(String track) {
         if (!bgmOn || !audioAvailable) return;
         if (track.equals(currentBgm) && bgmClip != null && bgmClip.isRunning()) return;
         stopBGM();
@@ -63,12 +90,18 @@ public class SoundManager {
         Thread t = new Thread(() -> {
             try {
                 byte[] pcm = buildBGM(track);
-                Clip clip  = openClip(pcm);
+                // Cek apakah track masih sama (belum di-stop oleh playBGM lain)
+                if (!track.equals(currentBgm)) return;
+                Clip clip = openClip(pcm);
                 if (clip == null) return;
                 setVol(clip, bgmVol);
+                synchronized (SoundManager.this) {
+                    // Cek lagi setelah dapat lock
+                    if (!track.equals(currentBgm)) { clip.close(); return; }
+                    bgmClip = clip;
+                }
                 clip.loop(Clip.LOOP_CONTINUOUSLY);
                 clip.start();
-                bgmClip = clip;
             } catch (Exception e) {
                 System.err.println("[Audio] BGM error (" + track + "): " + e.getMessage());
             }
@@ -77,12 +110,12 @@ public class SoundManager {
         t.start();
     }
 
-    public void stopBGM() {
+    public synchronized void stopBGM() {
+        currentBgm = "";
         if (bgmClip != null) {
             try { bgmClip.stop(); bgmClip.close(); } catch (Exception ignored) {}
             bgmClip = null;
         }
-        currentBgm = "";
     }
 
     // ── SFX ──────────────────────────────────────────────────────────────────
@@ -99,7 +132,8 @@ public class SoundManager {
                     if (ev.getType() == LineEvent.Type.STOP) c.close();
                 });
             } catch (Exception e) {
-                System.err.println("[Audio] SFX error (" + name + "): " + e.getMessage());
+                String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getName();
+                System.err.println("[Audio] SFX error (" + name + "): " + msg);
             }
         }, "SFX-" + name);
         t.setDaemon(true);
@@ -234,21 +268,64 @@ public class SoundManager {
     }
 
     private byte[] sfxFanfare(int[] notes, int nd) {
-        // FIX: nd minimal SR/8 agar setiap not cukup panjang
-        nd = Math.max(nd, SR / 8);
+        // Gunakan nd minimal SR/6 (≈7350 sample per not)
+        nd = Math.max(nd, SR / 6);
         int d = notes.length * nd;
         byte[] b = new byte[d * 2];
+
+        for (int noteIdx = 0; noteIdx < notes.length; noteIdx++) {
+            double freq  = notes[noteIdx];
+            // Phase accumulator per not — tidak ada t*f yang overflow
+            double phase1 = 0, phase2 = 0, phase3 = 0;
+            double inc1 = 2 * Math.PI * freq       / SR;
+            double inc2 = 2 * Math.PI * freq * 2.0 / SR;
+            double inc3 = 2 * Math.PI * freq * 3.0 / SR;
+
+            for (int s = 0; s < nd; s++) {
+                int globalIdx = noteIdx * nd + s;
+                // Decay: 0->1 (attack 20ms) lalu turun perlahan
+                float env = (float) Math.exp(-s * 3.5 / SR);
+                if (s < 882) env *= (s / 882f); // attack 20ms
+                float v = (float)(Math.sin(phase1) * 0.60
+                                + Math.sin(phase2) * 0.25
+                                + Math.sin(phase3) * 0.10) * env;
+                write(b, globalIdx, v * 20000);
+                phase1 += inc1; phase2 += inc2; phase3 += inc3;
+                // Wrap phase agar tidak ke infinity
+                if (phase1 > 2 * Math.PI) { phase1 -= 2 * Math.PI; phase2 -= 4 * Math.PI; phase3 -= 6 * Math.PI; }
+            }
+        }
+        return b;
+    }
+
+    private byte[] sfxGacha() {
+        // Whoosh naik lalu chime akhir — pakai phase accumulator
+        int d = (int)(SR * 1.2); byte[] b = new byte[d * 2];
+        double phase = 0;
+        double chimePhase = 0;
+        double chimeInc = 2 * Math.PI * 1047.0 / SR;
+
         for (int i = 0; i < d; i++) {
-            int   posInNote = i % nd;
-            // t dalam detik (per not, bukan per seluruh sampel)
-            float t  = (float) posInNote / SR;
-            float f  = notes[i / nd];
-            // Decay berdasarkan waktu (detik), bukan per-sample → tidak collapse ke NaN/0
-            float env = (float) Math.exp(-t * 3.5);
-            float v   = (float)(Math.sin(2 * Math.PI * f * t) * 0.65
-                              + Math.sin(2 * Math.PI * f * 2 * t) * 0.20
-                              + Math.sin(2 * Math.PI * f * 3 * t) * 0.08) * env;
-            write(b, i, v * 18000);
+            float t = (float) i / SR;
+            // Frekuensi whoosh: 150 -> 600 Hz dalam 0.6 detik lalu berhenti
+            double freq = Math.min(600, 150 + i * 0.012);
+            double inc  = 2 * Math.PI * freq / SR;
+            phase += inc;
+            if (phase > 2 * Math.PI) phase -= 2 * Math.PI;
+
+            float envWhoosh = (float) Math.exp(-t * 1.8f);
+            float whoosh = (float) Math.sin(phase) * 0.5f * envWhoosh;
+
+            // Chime mulai di 0.5 detik
+            float chime = 0;
+            if (i > SR / 2) {
+                chimePhase += chimeInc;
+                if (chimePhase > 2 * Math.PI) chimePhase -= 2 * Math.PI;
+                float ct = t - 0.5f;
+                chime = (float)(Math.sin(chimePhase) * Math.exp(-ct * 5.0) * 0.7f);
+            }
+
+            write(b, i, (whoosh + chime) * 20000);
         }
         return b;
     }
@@ -261,22 +338,6 @@ public class SoundManager {
             float v = (float) Math.sin(2 * Math.PI * f * t)
                     * (float) Math.exp(-i * 0.004);
             write(b, i, v * 16000);
-        }
-        return b;
-    }
-
-    private byte[] sfxGacha() {
-        // FIX: spin dibatasi max 1200 Hz agar tidak overflow ke NaN
-        int d = SR; byte[] b = new byte[d * 2];
-        for (int i = 0; i < d; i++) {
-            float t    = (float) i / SR;
-            // Frekuensi spin naik dari 200 Hz ke 800 Hz (bukan tak terbatas)
-            float spin = 200 + Math.min(600, i * 0.014f);
-            float e    = (float) Math.exp(-t * 1.5);
-            float chime = (i > SR / 2)
-                ? (float)(Math.sin(2 * Math.PI * 1047 * t) * Math.exp(-(t - 0.5) * 4)) : 0;
-            float v = (float)(Math.sin(2 * Math.PI * spin * t) * 0.45 + chime * 0.65) * e;
-            write(b, i, v * 18000);
         }
         return b;
     }
@@ -320,7 +381,7 @@ public class SoundManager {
     }
 
     private void write(byte[] b, int i, float v) {
-        // Guard: NaN atau Infinity dari kalkulasi sin/exp → tulis 0 agar tidak corrupt
+        // Guard: NaN atau Infinity dari kalkulasi sin/exp -> tulis 0 agar tidak corrupt
         if (!Float.isFinite(v)) v = 0f;
         short s = (short) Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, v));
         b[i * 2]     = (byte)(s & 0xFF);
@@ -328,38 +389,73 @@ public class SoundManager {
     }
 
     /**
-     * FIX: openClip sekarang mengembalikan null jika gagal (bukan throw),
-     * sehingga caller bisa guard tanpa try-catch berlebihan.
+     * openClip – coba 3 strategi berurutan agar kompatibel di semua driver Windows.
+     *
+     * Strategi 1: AudioSystem.getClip() langsung (paling kompatibel di Windows)
+     * Strategi 2: DataLine.Info eksplisit (fallback JVM lain)
+     * Strategi 3: Format stereo 16-bit (beberapa driver tidak support mono)
+     *
+     * Error "null" terjadi ketika LineUnavailableException.getMessage() == null —
+     * sekarang kita log class name sebagai gantinya.
      */
     private Clip openClip(byte[] pcm) {
+        AudioFormat fmtMono   = new AudioFormat(SR, 16, 1, true, false);
+        AudioFormat fmtStereo = new AudioFormat(SR, 16, 2, true, false);
+
+        // Strategi 1: getClip() langsung — paling kompatibel Windows
         try {
-            AudioFormat fmt = new AudioFormat(SR, 16, 1, true, false);
-            // FIX: gunakan DataLine.Info eksplisit — AudioSystem.getClip() tanpa Info
-            // bisa throw LineUnavailableException dengan message null di beberapa JVM/driver
-            DataLine.Info info = new DataLine.Info(Clip.class, fmt);
-            if (!AudioSystem.isLineSupported(info)) {
-                System.err.println("[Audio] Line tidak didukung: " + fmt);
-                return null;
-            }
-            Clip c = (Clip) AudioSystem.getLine(info);
-            AudioInputStream ais = new AudioInputStream(
-                new ByteArrayInputStream(pcm), fmt, pcm.length / 2L);
-            c.open(ais);
+            Clip c = AudioSystem.getClip();
+            c.open(new AudioInputStream(new ByteArrayInputStream(pcm), fmtMono, pcm.length / 2L));
             return c;
-        } catch (Exception e) {
-            System.err.println("[Audio] openClip gagal: "
-                + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        } catch (Exception e1) {
+            String msg1 = e1.getMessage() != null ? e1.getMessage() : e1.getClass().getSimpleName();
+
+            // Strategi 2: DataLine.Info eksplisit
+            try {
+                DataLine.Info info = new DataLine.Info(Clip.class, fmtMono);
+                if (AudioSystem.isLineSupported(info)) {
+                    Clip c = (Clip) AudioSystem.getLine(info);
+                    c.open(new AudioInputStream(new ByteArrayInputStream(pcm), fmtMono, pcm.length / 2L));
+                    return c;
+                }
+            } catch (Exception e2) { /* lanjut ke strategi 3 */ }
+
+            // Strategi 3: stereo (duplikasi channel mono ke stereo)
+            try {
+                byte[] stereo = monoToStereo(pcm);
+                DataLine.Info info2 = new DataLine.Info(Clip.class, fmtStereo);
+                if (AudioSystem.isLineSupported(info2)) {
+                    Clip c = (Clip) AudioSystem.getLine(info2);
+                    c.open(new AudioInputStream(new ByteArrayInputStream(stereo), fmtStereo, stereo.length / 4L));
+                    return c;
+                }
+            } catch (Exception e3) { /* semua gagal */ }
+
+            System.err.println("[Audio] Semua strategi gagal: " + msg1);
             return null;
         }
     }
 
+    /** Duplikasi channel mono (16-bit LE) menjadi stereo interleaved. */
+    private byte[] monoToStereo(byte[] mono) {
+        byte[] stereo = new byte[mono.length * 2];
+        for (int i = 0; i < mono.length / 2; i++) {
+            // Setiap sample 2 byte -> copy ke L dan R
+            stereo[i * 4]     = mono[i * 2];
+            stereo[i * 4 + 1] = mono[i * 2 + 1];
+            stereo[i * 4 + 2] = mono[i * 2];
+            stereo[i * 4 + 3] = mono[i * 2 + 1];
+        }
+        return stereo;
+    }
+
     /**
-     * FIX: setVol menggunakan konversi linear→dB yang benar.
+     * FIX: setVol menggunakan konversi linear->dB yang benar.
      *
      * MASTER_GAIN bekerja dalam desibel (dB), bukan linear.
      * Rumus yang benar: dB = 20 * log10(volume), di-clamp ke [min, max] Clip.
      *
-     * Rumus lama: min + (max-min)*v  → SALAH, menghasilkan volume terlalu kecil.
+     * Rumus lama: min + (max-min)*v  -> SALAH, menghasilkan volume terlalu kecil.
      */
     private void setVol(Clip c, float vol) {
         if (c == null) return;

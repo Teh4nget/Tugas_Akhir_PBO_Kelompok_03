@@ -16,15 +16,16 @@ public class MainFrame extends JFrame {
     public static final String SCREEN_BEAST  = "BEAST";
     public static final String SCREEN_BATTLE = "BATTLE";
     public static final String SCREEN_GACHA  = "GACHA";
+    public static final String SCREEN_ENDING = "ENDING";
 
-    // Ukuran tetap per screen agar tidak berantakan
-    private static final Dimension SIZE_LOGIN  = new Dimension(520, 520);
-    private static final Dimension SIZE_STORY  = new Dimension(600, 480);
-    private static final Dimension SIZE_MENU   = new Dimension(480, 560);
-    private static final Dimension SIZE_MAP    = new Dimension(480, 560);
-    private static final Dimension SIZE_BEAST  = new Dimension(620, 580);
-    private static final Dimension SIZE_BATTLE = new Dimension(820, 580);
-    private static final Dimension SIZE_GACHA  = new Dimension(520, 520);
+    private static final Dimension SIZE_LOGIN  = new Dimension(560, 560);
+    private static final Dimension SIZE_STORY  = new Dimension(680, 520);
+    private static final Dimension SIZE_MENU   = new Dimension(560, 600);
+    private static final Dimension SIZE_MAP    = new Dimension(560, 640);
+    private static final Dimension SIZE_BEAST  = new Dimension(760, 640);
+    private static final Dimension SIZE_BATTLE = new Dimension(920, 640);
+    private static final Dimension SIZE_GACHA  = new Dimension(580, 580);
+    private static final Dimension SIZE_ENDING = new Dimension(720, 580);
 
     public MainFrame() {
         setTitle("Beast Clash");
@@ -72,10 +73,27 @@ public class MainFrame extends JFrame {
         switchTo(SCREEN_GACHA, new GachaPanel(this), SIZE_GACHA);
     }
 
+    public void showEnding() {
+        SoundManager.getInstance().playBGM("VICTORY");
+        switchTo(SCREEN_ENDING, new EndingPanel(this), SIZE_ENDING);
+    }
+
     // =========================================================================
     //  Core switch logic  –  HAPUS semua panel lama, tambah baru, resize, show
+    // Interface untuk panel yang punya resource yang perlu dibersihkan
+    public interface Cleanable {
+        void cleanup();
+    }
+
     // =========================================================================
     private void switchTo(String screenName, JPanel panel, Dimension size) {
+        // 0. Cleanup resource panel lama (timer, dll) agar tidak ada timer zombie
+        for (Component c : mainContainer.getComponents()) {
+            if (c instanceof Cleanable) {
+                ((Cleanable) c).cleanup();
+            }
+        }
+
         // 1. Hapus semua komponen lama agar tidak menumpuk
         mainContainer.removeAll();
 

@@ -12,7 +12,7 @@ import java.util.List;
  * MapSelectPanel – layar pemilihan map sebelum masuk BeastSelectPanel.
  *
  * Menampilkan semua GameMap dari GameState. Map terkunci ditampilkan greyed-out.
- * Klik map yang terbuka → set selectedMap di GameState → tampilkan BeastSelectPanel.
+ * Klik map yang terbuka -> set selectedMap di GameState -> tampilkan BeastSelectPanel.
  */
 public class MapSelectPanel extends JPanel {
 
@@ -33,18 +33,25 @@ public class MapSelectPanel extends JPanel {
         header.setOpaque(false);
         header.setBorder(BorderFactory.createEmptyBorder(16, 16, 8, 16));
 
-        JLabel title = new JLabel("🗺 Pilih Map", SwingConstants.CENTER);
+        JLabel title = new JLabel("Pilih Map", SwingConstants.CENTER);
         title.setFont(new Font("Segoe UI", Font.BOLD, 20));
         title.setForeground(new Color(255, 220, 80));
         header.add(title, BorderLayout.CENTER);
 
-        JButton btnBack = new JButton("← Kembali");
+        JButton btnBack = new JButton("<- Kembali");
         styleSecondaryBtn(btnBack);
         btnBack.addActionListener(e -> {
             SoundManager.getInstance().playSFX("CLICK");
             frame.showMainMenu();
         });
         header.add(btnBack, BorderLayout.WEST);
+
+        // Spacer kanan agar judul benar-benar di tengah (seimbang dengan tombol kiri)
+        JPanel spacer = new JPanel();
+        spacer.setOpaque(false);
+        spacer.setPreferredSize(btnBack.getPreferredSize());
+        header.add(spacer, BorderLayout.EAST);
+
         add(header, BorderLayout.NORTH);
 
         // Grid map
@@ -55,7 +62,8 @@ public class MapSelectPanel extends JPanel {
 
         for (int i = 0; i < maps.size(); i++) {
             GameMap map = maps.get(i);
-            grid.add(buildMapCard(map, i + 1));
+            boolean isLastMap = (i == maps.size() - 1);
+            grid.add(buildMapCard(map, i + 1, isLastMap));
         }
 
         JScrollPane scroll = new JScrollPane(grid);
@@ -75,44 +83,70 @@ public class MapSelectPanel extends JPanel {
         add(info, BorderLayout.SOUTH);
     }
 
-    private JPanel buildMapCard(GameMap map, int mapNumber) {
+    private JPanel buildMapCard(GameMap map, int mapNumber, boolean isLastMap) {
         JPanel card = new JPanel();
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
         card.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(
                 map.isUnlocked() ? new Color(100, 160, 255) : new Color(80, 80, 80), 2),
-            BorderFactory.createEmptyBorder(12, 12, 12, 12)));
+            BorderFactory.createEmptyBorder(8, 8, 8, 8)));
 
-        Color bg = map.isUnlocked()
-                ? new Color(40, 55, 90)
-                : new Color(35, 35, 45);
+        Color bg = map.isUnlocked() ? new Color(40, 55, 90) : new Color(35, 35, 45);
         card.setBackground(bg);
         card.setOpaque(true);
 
         // Nomor & nama
         JLabel numLbl = new JLabel("Map " + mapNumber, SwingConstants.CENTER);
-        numLbl.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        numLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
         numLbl.setForeground(map.isUnlocked() ? new Color(255, 220, 80) : new Color(100, 100, 100));
         numLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
         card.add(numLbl);
 
         JLabel nameLbl = new JLabel(map.getName(), SwingConstants.CENTER);
-        nameLbl.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        nameLbl.setFont(new Font("Segoe UI", Font.BOLD, 14));
         nameLbl.setForeground(map.isUnlocked() ? Color.WHITE : new Color(90, 90, 90));
         nameLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
         card.add(nameLbl);
 
-        card.add(Box.createVerticalStrut(6));
+        card.add(Box.createVerticalStrut(5));
 
-        // Ikon elemen
-        JLabel elemLbl = new JLabel(getElementEmoji(map.getEnemyElement())
-                + " " + map.getEnemyElement(), SwingConstants.CENTER);
-        elemLbl.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        elemLbl.setForeground(new Color(180, 210, 255));
-        elemLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
-        card.add(elemLbl);
+        // ── Thumbnail gambar map ─────────────────────────────────────────────
+        JLabel imgLbl = new JLabel() {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                java.awt.image.BufferedImage bg2 =
+                    beastclash.resources.ResourceManager.getInstance().getMapBg(map.getName());
+                if (bg2 != null) {
+                    g2.drawImage(bg2, 0, 0, getWidth(), getHeight(), null);
+                    // Overlay gelap jika terkunci
+                    if (!map.isUnlocked()) {
+                        g2.setColor(new Color(0, 0, 0, 160));
+                        g2.fillRect(0, 0, getWidth(), getHeight());
+                        g2.setColor(Color.WHITE);
+                        g2.setFont(new Font("Segoe UI", Font.BOLD, 16));
+                        FontMetrics fmk = g2.getFontMetrics();
+                        String kunci = "TERKUNCI";
+                        g2.drawString(kunci, (getWidth() - fmk.stringWidth(kunci)) / 2, getHeight()/2 + 6);
+                    }
+                } else {
+                    g2.setColor(new Color(30, 30, 50));
+                    g2.fillRect(0, 0, getWidth(), getHeight());
+                }
+                // Border tipis
+                g2.setColor(map.isUnlocked() ? new Color(100,160,255,120) : new Color(60,60,60));
+                g2.drawRect(0, 0, getWidth()-1, getHeight()-1);
+            }
+        };
+        imgLbl.setPreferredSize(new Dimension(170, 80));
+        imgLbl.setMaximumSize(new Dimension(999, 80));
+        imgLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+        card.add(imgLbl);
 
-        card.add(Box.createVerticalStrut(6));
+        card.add(Box.createVerticalStrut(5));
+
+        card.add(Box.createVerticalStrut(4));
 
         // Progress bar
         int comp = map.getCompletedLevels();
@@ -135,39 +169,59 @@ public class MapSelectPanel extends JPanel {
 
         // Tombol main / terkunci / selesai
         if (map.isUnlocked()) {
-            // Badge SELESAI jika semua level sudah ditamatkan
             if (map.isFullyCompleted()) {
-                JLabel doneLbl = new JLabel("✅ SELESAI", SwingConstants.CENTER);
-                doneLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
-                doneLbl.setForeground(new Color(100, 220, 100));
-                doneLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
-                card.add(doneLbl);
-                card.add(Box.createVerticalStrut(4));
-            }
+                if (isLastMap) {
+                    // Map terakhir yang selesai: bisa diulang
+                    JLabel doneLbl = new JLabel("SELESAI", SwingConstants.CENTER);
+                    doneLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+                    doneLbl.setForeground(new Color(100, 220, 100));
+                    doneLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+                    card.add(doneLbl);
+                    card.add(Box.createVerticalStrut(4));
 
-            // FIX: level dimulai dari 1 (replay) jika sudah selesai,
-            // atau comp+1 jika belum. Pastikan tidak melebihi maxLevels.
-            int startLevel = map.isFullyCompleted()
-                ? 1
-                : Math.min(comp + 1, map.getMaxLevels());
+                    JButton btnPlay = new JButton("ULANG");
+                    stylePrimaryBtn(btnPlay);
+                    btnPlay.setBackground(new Color(40, 110, 60));
+                    btnPlay.setToolTipText("Main ulang dari Level 1");
+                    btnPlay.setAlignmentX(Component.CENTER_ALIGNMENT);
+                    btnPlay.addActionListener(e -> {
+                        SoundManager.getInstance().playSFX("CLICK");
+                        state.setSelectedMap(map);
+                        state.setCurrentLevel(1);
+                        frame.showBeastSelect();
+                    });
+                    card.add(btnPlay);
+                } else {
+                    // Map bukan terakhir yang sudah selesai: DIKUNCI permanen
+                    JLabel doneLbl = new JLabel("SELESAI", SwingConstants.CENTER);
+                    doneLbl.setFont(new Font("Segoe UI", Font.BOLD, 11));
+                    doneLbl.setForeground(new Color(100, 220, 100));
+                    doneLbl.setAlignmentX(Component.CENTER_ALIGNMENT);
+                    card.add(doneLbl);
+                    card.add(Box.createVerticalStrut(4));
 
-            String btnLabel = map.isFullyCompleted() ? "🔄 ULANG" : "▶ MAIN";
-            JButton btnPlay = new JButton(btnLabel);
-            stylePrimaryBtn(btnPlay);
-            if (map.isFullyCompleted()) {
-                btnPlay.setBackground(new Color(40, 110, 60));
-                btnPlay.setToolTipText("Main ulang dari Level 1");
+                    JLabel lockedDone = new JLabel("Tidak bisa diulang", SwingConstants.CENTER);
+                    lockedDone.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+                    lockedDone.setForeground(new Color(160, 160, 160));
+                    lockedDone.setAlignmentX(Component.CENTER_ALIGNMENT);
+                    card.add(lockedDone);
+                }
+            } else {
+                // Map belum selesai: bisa dimainkan
+                int startLevel = Math.min(comp + 1, map.getMaxLevels());
+                JButton btnPlay = new JButton("> MAIN");
+                stylePrimaryBtn(btnPlay);
+                btnPlay.setAlignmentX(Component.CENTER_ALIGNMENT);
+                btnPlay.addActionListener(e -> {
+                    SoundManager.getInstance().playSFX("CLICK");
+                    state.setSelectedMap(map);
+                    state.setCurrentLevel(startLevel);
+                    frame.showBeastSelect();
+                });
+                card.add(btnPlay);
             }
-            btnPlay.setAlignmentX(Component.CENTER_ALIGNMENT);
-            btnPlay.addActionListener(e -> {
-                SoundManager.getInstance().playSFX("CLICK");
-                state.setSelectedMap(map);
-                state.setCurrentLevel(startLevel);
-                frame.showBeastSelect();
-            });
-            card.add(btnPlay);
         } else {
-            JLabel locked = new JLabel("🔒 TERKUNCI", SwingConstants.CENTER);
+            JLabel locked = new JLabel("TERKUNCI", SwingConstants.CENTER);
             locked.setFont(new Font("Segoe UI", Font.BOLD, 12));
             locked.setForeground(new Color(120, 120, 120));
             locked.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -192,37 +246,58 @@ public class MapSelectPanel extends JPanel {
 
     private String getElementEmoji(String element) {
         switch (element) {
-            case "Api":    return "🔥";
-            case "Air":    return "💧";
-            case "Tanah":  return "🪨";
-            case "Daun":   return "🌿";
-            case "Cahaya": return "✨";
-            case "Gelap":  return "🌑";
-            default:       return "❓";
+            case "Api":    return "Api";
+            case "Air":    return "Air";
+            case "Tanah":  return "Tanah";
+            case "Daun":   return "Daun";
+            case "Cahaya": return "*";
+            case "Gelap":  return "Gelap";
+            default:       return "?";
         }
     }
 
     private void stylePrimaryBtn(JButton btn) {
-        btn.setFont(new Font("Segoe UI", Font.BOLD, 12));
-        btn.setBackground(new Color(70, 130, 220));
-        btn.setForeground(Color.WHITE);
-        btn.setFocusPainted(false);
-        btn.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(50, 100, 180), 1),
-            BorderFactory.createEmptyBorder(5, 16, 5, 16)));
-        btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btn.setMaximumSize(new Dimension(140, 30));
+        applyCustomPaint(btn, new Color(70, 130, 220), Color.WHITE, 12);
+        btn.setMaximumSize(new Dimension(160, 32));
     }
 
     private void styleSecondaryBtn(JButton btn) {
-        btn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        btn.setBackground(new Color(50, 50, 70));
-        btn.setForeground(new Color(200, 200, 220));
+        applyCustomPaint(btn, new Color(50, 55, 90), new Color(200, 210, 240), 12);
+    }
+
+    private void applyCustomPaint(JButton btn, Color bg, Color fg, int fontSize) {
+        btn.setFont(new Font("Segoe UI", Font.BOLD, fontSize));
+        btn.setBackground(bg);
+        btn.setForeground(fg);
         btn.setFocusPainted(false);
-        btn.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(80, 80, 100), 1),
-            BorderFactory.createEmptyBorder(4, 12, 4, 12)));
+        btn.setBorderPainted(false);
+        btn.setContentAreaFilled(false);
+        btn.setOpaque(false);
         btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        // Override paint agar selalu terlihat
+        btn.setUI(new javax.swing.plaf.basic.BasicButtonUI() {
+            @Override public void paint(Graphics g, JComponent c) {
+                JButton b = (JButton) c;
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON);
+                Color base = b.getBackground();
+                Color fill = b.getModel().isPressed()  ? base.darker()  :
+                             b.getModel().isRollover() ? base.brighter() : base;
+                g2.setColor(fill);
+                g2.fillRoundRect(0, 0, b.getWidth(), b.getHeight(), 8, 8);
+                g2.setColor(base.brighter());
+                g2.setStroke(new BasicStroke(1.2f));
+                g2.drawRoundRect(0, 0, b.getWidth()-1, b.getHeight()-1, 8, 8);
+                g2.setFont(b.getFont());
+                g2.setColor(b.getForeground());
+                FontMetrics fm = g2.getFontMetrics();
+                String t = b.getText();
+                g2.drawString(t,
+                    (b.getWidth()  - fm.stringWidth(t)) / 2,
+                    (b.getHeight() + fm.getAscent() - fm.getDescent()) / 2);
+            }
+        });
     }
 
     @Override

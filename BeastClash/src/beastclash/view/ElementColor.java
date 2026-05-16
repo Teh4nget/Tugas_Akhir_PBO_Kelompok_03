@@ -15,15 +15,32 @@ public class ElementColor {
         }
     }
 
+    /**
+     * Ganti emoji Unicode dengan teks ASCII sederhana agar tidak muncul kotak
+     * di sistem yang fontnya tidak support emoji.
+     */
     public static String getEmoji(String element) {
         switch (element) {
-            case "Api":    return "🔥";
-            case "Air":    return "💧";
-            case "Tanah":  return "🪨";
-            case "Daun":   return "🌿";
-            case "Cahaya": return "✨";
-            case "Gelap":  return "🌑";
-            default:       return "❓";
+            case "Api":    return "Api";
+            case "Air":    return "Air";
+            case "Tanah":  return "Tanah";
+            case "Daun":   return "Daun";
+            case "Cahaya": return "Cahaya";
+            case "Gelap":  return "Gelap";
+            default:       return "?";
+        }
+    }
+
+    /** Versi pendek untuk label kecil. */
+    public static String getShortLabel(String element) {
+        switch (element) {
+            case "Api":    return "Api";
+            case "Air":    return "Air";
+            case "Tanah":  return "Tanah";
+            case "Daun":   return "Daun";
+            case "Cahaya": return "Cahaya";
+            case "Gelap":  return "Gelap";
+            default:       return "?";
         }
     }
 }

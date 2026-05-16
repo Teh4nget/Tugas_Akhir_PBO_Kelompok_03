@@ -22,7 +22,7 @@ import java.util.List;
  *  - lblOwned diperbarui setelah setiap pull.
  *  - Pity count disimpan per sesi (tidak hilang saat refresh panel).
  */
-public class GachaPanel extends JPanel {
+public class GachaPanel extends JPanel implements MainFrame.Cleanable {
 
     private MainFrame  frame;
     private GachaSystem gacha;
@@ -52,8 +52,8 @@ public class GachaPanel extends JPanel {
         this.frame  = frame;
         this.gacha  = new GachaSystem();
         this.userId = GameState.getInstance().getCurrentUserId();
-        setLayout(null);
-        setPreferredSize(new Dimension(520, 520));
+        setLayout(new BorderLayout());
+        setPreferredSize(new Dimension(580, 580));
         setBackground(new Color(8, 8, 25));
         buildUI();
         initParticles(40);
@@ -63,66 +63,64 @@ public class GachaPanel extends JPanel {
     }
 
     private void buildUI() {
-        // ── Header ───────────────────────────────────────────────────────────
-        JLabel title = new JLabel("✨ GACHA BEAST ✨", SwingConstants.CENTER);
+        // ── NORTH: header bar ─────────────────────────────────────────────────
+        JPanel header = new JPanel(new BorderLayout(8, 0));
+        header.setOpaque(false);
+        header.setBorder(BorderFactory.createEmptyBorder(10, 12, 4, 12));
+
+        btnBack = new JButton("<- Kembali") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getModel().isRollover() ? getBackground().brighter() : getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.setColor(getForeground());
+                g2.setFont(getFont());
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(getText(), (getWidth()-fm.stringWidth(getText()))/2,
+                    (getHeight()+fm.getAscent()-fm.getDescent())/2);
+            }
+        };
+        btnBack.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        btnBack.setBackground(new Color(40, 40, 70));
+        btnBack.setForeground(new Color(200, 200, 240));
+        btnBack.setFocusPainted(false);
+        btnBack.setBorderPainted(false);
+        btnBack.setContentAreaFilled(false);
+        btnBack.setOpaque(false);
+        btnBack.setPreferredSize(new Dimension(110, 32));
+        btnBack.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btnBack.addActionListener(e -> { SoundManager.getInstance().playSFX("CLICK"); frame.showMainMenu(); });
+
+        JLabel title = new JLabel("GACHA BEAST", SwingConstants.CENTER);
         title.setFont(new Font("Segoe UI", Font.BOLD, 22));
         title.setForeground(new Color(220, 180, 255));
-        title.setBounds(0, 15, 520, 35);
-        add(title);
 
-        lblEggs = new JLabel("🥚 Telur: 0", SwingConstants.CENTER);
-        lblEggs.setFont(new Font("Segoe UI", Font.BOLD, 14));
+        JPanel infoRight = new JPanel(new GridLayout(2, 1, 0, 0));
+        infoRight.setOpaque(false);
+        lblEggs = new JLabel("Telur: 0", SwingConstants.RIGHT);
+        lblEggs.setFont(new Font("Segoe UI", Font.BOLD, 13));
         lblEggs.setForeground(new Color(255, 220, 100));
-        lblEggs.setBounds(0, 52, 260, 24);
-        add(lblEggs);
-
-        lblPity = new JLabel("Pity: 0/10", SwingConstants.CENTER);
-        lblPity.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        lblPity = new JLabel("Pity: 0/10", SwingConstants.RIGHT);
+        lblPity.setFont(new Font("Segoe UI", Font.PLAIN, 11));
         lblPity.setForeground(new Color(180, 140, 220));
-        lblPity.setBounds(260, 52, 260, 24);
-        add(lblPity);
+        infoRight.add(lblEggs);
+        infoRight.add(lblPity);
 
-        // ── Tombol pull ───────────────────────────────────────────────────────
-        btnPull = new JButton("🥚  PULL  (1 Telur)");
-        btnPull.setBounds(160, 420, 200, 48);
-        btnPull.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        btnPull.setBackground(new Color(100, 40, 180));
-        btnPull.setForeground(Color.WHITE);
-        btnPull.setBorderPainted(false);
-        btnPull.setFocusPainted(false);
-        btnPull.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btnPull.addMouseListener(new MouseAdapter() {
-            public void mouseEntered(MouseEvent e) { btnPull.setBackground(new Color(130, 60, 220)); }
-            public void mouseExited(MouseEvent e)  { btnPull.setBackground(new Color(100, 40, 180)); }
-        });
-        btnPull.addActionListener(e -> doPull());
+        header.add(btnBack, BorderLayout.WEST);
+        header.add(title,   BorderLayout.CENTER);
+        header.add(infoRight, BorderLayout.EAST);
+        add(header, BorderLayout.NORTH);
 
-        // FIX: nonaktifkan pull jika mode offline
-        if (userId <= 0) {
-            btnPull.setEnabled(false);
-            btnPull.setToolTipText("Gacha tidak tersedia di mode offline");
-        }
-        add(btnPull);
+        // ── CENTER: area telur/reveal (transparan, dikuasai paintComponent) ───
+        JPanel centerArea = new JPanel(new BorderLayout()) {
+            @Override protected void paintComponent(Graphics g) { /* transparan */ }
+        };
+        centerArea.setOpaque(false);
 
-        // ── Kembali ────────────────────────────────────────────────────────────
-        btnBack = new JButton("← Kembali");
-        btnBack.setBounds(10, 10, 110, 32);
-        btnBack.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        btnBack.setBackground(new Color(40, 40, 70));
-        btnBack.setForeground(new Color(180, 180, 220));
-        btnBack.setBorderPainted(false);
-        btnBack.setFocusPainted(false);
-        btnBack.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        btnBack.addActionListener(e -> {
-            SoundManager.getInstance().playSFX("CLICK");
-            frame.showMainMenu();
-        });
-        add(btnBack);
-
-        // ── Reveal panel ─────────────────────────────────────────────────────
+        // revealPanel di tengah CENTER
         revealPanel = new JPanel(null) {
-            @Override
-            protected void paintComponent(Graphics g) {
+            @Override protected void paintComponent(Graphics g) {
                 super.paintComponent(g);
                 if (revealedBeast == null) return;
                 Graphics2D g2 = (Graphics2D) g;
@@ -131,69 +129,105 @@ public class GachaPanel extends JPanel {
             }
         };
         revealPanel.setOpaque(false);
-        revealPanel.setBounds(110, 85, 300, 310);
+        revealPanel.setPreferredSize(new Dimension(300, 340));
         revealPanel.setVisible(false);
-        add(revealPanel);
 
-        // Label result
+        JPanel revealWrapper = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 10));
+        revealWrapper.setOpaque(false);
+        revealWrapper.add(revealPanel);
+        centerArea.add(revealWrapper, BorderLayout.CENTER);
+
         lblResult = new JLabel("", SwingConstants.CENTER);
-        lblResult.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        lblResult.setFont(new Font("Segoe UI", Font.BOLD, 14));
         lblResult.setForeground(Color.WHITE);
-        lblResult.setBounds(0, 390, 520, 22);
-        add(lblResult);
+        lblResult.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
+        centerArea.add(lblResult, BorderLayout.SOUTH);
 
-        // FIX: lblOwned sebagai field agar bisa diupdate setelah pull
+        add(centerArea, BorderLayout.CENTER);
+
+        // ── SOUTH: tombol pull + info ─────────────────────────────────────────
+        JPanel south = new JPanel(new BorderLayout(0, 4));
+        south.setOpaque(false);
+        south.setBorder(BorderFactory.createEmptyBorder(4, 20, 12, 20));
+
+        // Tombol PULL custom paint
+        btnPull = new JButton("PULL  (1 Telur)") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                Color base = getBackground();
+                g2.setColor(getModel().isPressed()  ? base.darker()  :
+                            getModel().isRollover() ? base.brighter() : base);
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 12, 12);
+                g2.setColor(base.brighter());
+                g2.setStroke(new BasicStroke(1.5f));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 12, 12);
+                g2.setFont(getFont());
+                g2.setColor(isEnabled() ? getForeground() : Color.GRAY);
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(getText(), (getWidth()-fm.stringWidth(getText()))/2,
+                    (getHeight()+fm.getAscent()-fm.getDescent())/2);
+            }
+        };
+        btnPull.setFont(new Font("Segoe UI", Font.BOLD, 15));
+        btnPull.setBackground(new Color(100, 40, 180));
+        btnPull.setForeground(Color.WHITE);
+        btnPull.setFocusPainted(false);
+        btnPull.setBorderPainted(false);
+        btnPull.setContentAreaFilled(false);
+        btnPull.setOpaque(false);
+        btnPull.setPreferredSize(new Dimension(220, 50));
+        btnPull.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        btnPull.addActionListener(e -> doPull());
+        // Pull tersedia di semua mode (online & offline)
+
+        JPanel pullRow = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        pullRow.setOpaque(false);
+        pullRow.add(btnPull);
+        south.add(pullRow, BorderLayout.CENTER);
+
+        JPanel infoBottom = new JPanel(new GridLayout(3, 1, 0, 2));
+        infoBottom.setOpaque(false);
+
         lblOwned = new JLabel("", SwingConstants.CENTER);
         lblOwned.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        lblOwned.setForeground(new Color(150, 150, 200));
-        lblOwned.setBounds(0, 480, 520, 18);
-        add(lblOwned);
+        lblOwned.setForeground(new Color(160, 160, 210));
+        infoBottom.add(lblOwned);
 
-        // Mode offline notice
-        if (userId <= 0) {
-            JLabel lblOffline = new JLabel("⚠ Mode Offline – Gacha membutuhkan koneksi database", SwingConstants.CENTER);
-            lblOffline.setFont(new Font("Segoe UI", Font.ITALIC, 10));
-            lblOffline.setForeground(new Color(255, 180, 60));
-            lblOffline.setBounds(10, 460, 500, 14);
-            add(lblOffline);
-        } else {
-            // Info rate hanya muncul jika online
-            JLabel lblRate = new JLabel(
-                "Beast baru: Api/Air/Tanah/Daun (biasa) · Cahaya/Gelap (langka) · Duplikat → +3🥚 · Pity ke-10 dijamin langka",
+        {
+            JLabel lr = new JLabel(
+                "Beast baru: Api/Air/Tanah/Daun (biasa) · Cahaya/Gelap (langka) · Pity ke-10 dijamin langka",
                 SwingConstants.CENTER);
-            lblRate.setFont(new Font("Segoe UI", Font.ITALIC, 9));
-            lblRate.setForeground(new Color(120, 120, 160));
-            lblRate.setBounds(10, 465, 500, 14);
-            add(lblRate);
+            lr.setFont(new Font("Segoe UI", Font.ITALIC, 9));
+            lr.setForeground(new Color(120, 120, 160));
+            infoBottom.add(lr);
         }
+        infoBottom.add(new JLabel("", SwingConstants.CENTER)); // spacer
+        south.add(infoBottom, BorderLayout.SOUTH);
+        add(south, BorderLayout.SOUTH);
     }
 
     // ── Pull logic ───────────────────────────────────────────────────────────
     private void doPull() {
-        // FIX: guard userId
-        if (userId <= 0) {
-            lblResult.setText("❌ Gacha tidak tersedia di mode offline.");
-            return;
-        }
-        if (!DatabaseManager.getInstance().isConnected()) {
-            lblResult.setText("❌ Database tidak terhubung!");
-            return;
-        }
+        // Pull tersedia online dan offline
 
         SoundManager.getInstance().playSFX("EGG");
         btnPull.setEnabled(false);
         showReveal    = false;
         revealedBeast = null;
         revealPanel.setVisible(false);
-        lblResult.setText("🥚 Menetas...");
+        lblResult.setText("Telur Menetas...");
 
         Timer delay = new Timer(1500, e -> {
             GachaSystem.PullResult res = gacha.pull(userId, pityCount);
             if (res == null) {
-                int eggs = DatabaseManager.getInstance().getEggs(userId);
+                // Cek sisa telur sesuai mode
+                int eggs = (userId <= 0)
+                    ? GameState.getInstance().getOfflineEggs()
+                    : DatabaseManager.getInstance().getEggs(userId);
                 lblResult.setText(eggs <= 0
-                    ? "❌ Telur habis! Menangkan battle untuk mendapat telur."
-                    : "❌ Gagal pull. Coba lagi.");
+                    ? "Telur habis! Menangkan battle untuk mendapat telur."
+                    : "Gagal pull. Coba lagi.");
                 lblResult.setForeground(new Color(255, 100, 100));
                 btnPull.setEnabled(eggs > 0);
             } else {
@@ -203,26 +237,35 @@ public class GachaPanel extends JPanel {
                 revealPanel.setVisible(true);
 
                 if (res.isDuplicate) {
-                    // Beast duplikat → tampilkan pesan shard
-                    lblResult.setForeground(new Color(255, 200, 80));
-                    lblResult.setText("🔄 Duplikat: " + got.getName()
-                        + " → +" + res.shardReward + " 🥚 Telur dikembalikan!");
+                    lblResult.setForeground(new Color(180, 180, 180));
+                    lblResult.setText("Duplikat: " + got.getName()
+                        + " [" + got.getElement() + "] — Beast sudah dimiliki.");
                     SoundManager.getInstance().playSFX("UNLOCK");
-                    initParticles(30); // efek partikel lebih kecil untuk duplikat
+                    initParticles(20);
                 } else {
-                    // Beast baru!
                     lblResult.setForeground(ElementColor.getColor(got.getElement()));
-                    lblResult.setText("🎉 Beast Baru! " + got.getName()
+                    lblResult.setText("! Beast Baru! " + got.getName()
                         + " [" + got.getElement() + "] berhasil didapat!");
                     SoundManager.getInstance().playSFX("GACHA");
                     initParticles(60);
-                    // Invalidate cache agar BeastSelectPanel dapat beast terbaru
                     GameState.getInstance().invalidateBeastCache();
+
+                    // Cek apakah semua 24 beast sudah dimiliki -> tampilkan ending
+                    // Hanya untuk mode online (offline tidak persisten)
+                    if (userId > 0 && DatabaseManager.getInstance().isConnected()) {
+                        int owned = DatabaseManager.getInstance().getOwnedBeastIds(userId).size();
+                        if (owned >= 24) {
+                            new Timer(2000, ev -> frame.showEnding()) {{ setRepeats(false); start(); }};
+                        }
+                    }
                 }
 
                 refreshEggCount();
                 refreshOwnedCount();
-                btnPull.setEnabled(DatabaseManager.getInstance().getEggs(userId) > 0);
+                int eggsLeft = (userId <= 0)
+                    ? GameState.getInstance().getOfflineEggs()
+                    : DatabaseManager.getInstance().getEggs(userId);
+                btnPull.setEnabled(eggsLeft > 0);
             }
             lblPity.setText("Pity: " + pityCount[0] + "/10");
         });
@@ -236,14 +279,16 @@ public class GachaPanel extends JPanel {
         Color ec = ElementColor.getColor(b.getElement());
         boolean isRare = b.getElement().equals("Cahaya") || b.getElement().equals("Gelap");
 
+        // ── Background kartu ──────────────────────────────────────────────────
         GradientPaint cardBg = new GradientPaint(0, 0,
             new Color(ec.getRed()/4, ec.getGreen()/4, ec.getBlue()/4),
             0, h, new Color(ec.getRed()/6, ec.getGreen()/6, ec.getBlue()/6));
         g2.setPaint(cardBg);
         g2.fillRoundRect(0, 0, w, h, 20, 20);
 
+        // Border (emas jika langka)
         if (isRare) {
-            g2.setColor(new Color(255, 215, 0, 180));
+            g2.setColor(new Color(255, 215, 0, 200));
             g2.setStroke(new BasicStroke(3));
         } else {
             g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 200));
@@ -252,53 +297,79 @@ public class GachaPanel extends JPanel {
         g2.drawRoundRect(1, 1, w-2, h-2, 20, 20);
         g2.setStroke(new BasicStroke(1));
 
+        // Badge LANGKA
         if (isRare) {
             g2.setColor(new Color(255, 215, 0));
             g2.setFont(new Font("Segoe UI", Font.BOLD, 11));
-            g2.drawString("★ LANGKA ★", w/2 - 38, 22);
+            FontMetrics fmr = g2.getFontMetrics();
+            String badge = "* LANGKA *";
+            g2.drawString(badge, (w - fmr.stringWidth(badge)) / 2, 20);
         }
 
-        g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 50));
-        g2.fillOval(w/2 - 80, 30, 160, 160);
+        // ── Gambar beast asli dari aset ───────────────────────────────────────
+        g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+            RenderingHints.VALUE_INTERPOLATION_BILINEAR);
 
-        g2.setColor(ec);
-        g2.fillOval(w/2 - 55, 40, 110, 110);
-        g2.setColor(new Color(255,255,255,120));
-        g2.fillOval(w/2 - 50, 45, 40, 30);
-        g2.setColor(Color.WHITE);
-        g2.fillOval(w/2 - 20, 75, 16, 16);
-        g2.fillOval(w/2 + 5,  75, 16, 16);
-        g2.setColor(Color.BLACK);
-        g2.fillOval(w/2 - 16, 79, 8, 8);
-        g2.fillOval(w/2 + 9,  79, 8, 8);
+        java.awt.image.BufferedImage beastImg =
+            beastclash.resources.ResourceManager.getInstance().getBeastImg(b.getName());
 
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 17));
+        int imgY    = isRare ? 24 : 10;
+        int imgSize = h - imgY - 75; // sisakan ruang untuk teks stat bawah
+        int imgX    = (w - imgSize) / 2;
+
+        if (beastImg != null) {
+            // Glow elemen di belakang gambar
+            g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 40));
+            g2.fillOval(imgX - 10, imgY - 10, imgSize + 20, imgSize + 20);
+            // Clip supaya gambar tidak meluber keluar kartu
+            Shape oldClip = g2.getClip();
+            g2.setClip(1, 1, w-2, h-2);
+            g2.drawImage(beastImg, imgX, imgY, imgSize, imgSize, null);
+            g2.setClip(oldClip);
+        } else {
+            // Fallback lingkaran elemen
+            g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 80));
+            g2.fillOval(imgX, imgY, imgSize, imgSize);
+            g2.setColor(ec);
+            g2.setFont(new Font("Segoe UI", Font.BOLD, 40));
+            g2.drawString(ElementColor.getEmoji(b.getElement()),
+                imgX + imgSize/2 - 20, imgY + imgSize/2 + 15);
+        }
+
+        // ── Nama beast ────────────────────────────────────────────────────────
+        int textY = imgY + imgSize + 16;
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 15));
         g2.setColor(Color.WHITE);
         FontMetrics fm = g2.getFontMetrics();
-        g2.drawString(b.getName(), (w - fm.stringWidth(b.getName())) / 2, 175);
+        g2.drawString(b.getName(), (w - fm.stringWidth(b.getName())) / 2, textY);
 
-        g2.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        // Elemen
+        g2.setFont(new Font("Segoe UI", Font.BOLD, 11));
         g2.setColor(ec.brighter());
         String elemStr = ElementColor.getEmoji(b.getElement()) + " " + b.getElement();
         FontMetrics fm2 = g2.getFontMetrics();
-        g2.drawString(elemStr, (w - fm2.stringWidth(elemStr)) / 2, 198);
+        g2.drawString(elemStr, (w - fm2.stringWidth(elemStr)) / 2, textY + 16);
 
-        g2.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        // Stat
+        g2.setFont(new Font("Segoe UI", Font.PLAIN, 10));
         g2.setColor(new Color(200, 220, 255));
-        g2.drawString("HP: " + b.getMaxHP() + "  |  ATK: " + b.getAttack() + "  |  DEF: " + b.getDefense(),
-            w/2 - 80, 222);
-        g2.drawString("MP: " + b.getMaxMana() + "  |  SPD: " + b.getSpeed(),
-            w/2 - 48, 240);
+        String stat1 = "HP:" + b.getMaxHP() + "  ATK:" + b.getAttack() + "  DEF:" + b.getDefense();
+        String stat2 = "MP:" + b.getMaxMana() + "  SPD:" + b.getSpeed();
+        FontMetrics fm3 = g2.getFontMetrics();
+        g2.drawString(stat1, (w - fm3.stringWidth(stat1)) / 2, textY + 30);
+        g2.drawString(stat2, (w - fm3.stringWidth(stat2)) / 2, textY + 43);
 
+        // Partikel
         for (float[] p : particles) {
-            g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), (int)(p[5] * 200)));
+            float a = Math.max(0f, Math.min(1f, p[5]));
+            g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), (int)(a * 200)));
             g2.fillOval((int)p[0], (int)p[1], (int)p[4], (int)p[4]);
         }
     }
 
     // ── Animasi telur ─────────────────────────────────────────────────────────
     private void drawEggAnimation(Graphics2D g2) {
-        int cx = 260, cy = 280;
+        int cx = getWidth() / 2, cy = getHeight() / 2 - 20;
         float wobble = (float)(Math.sin(eggPhase * 8) * 12);
 
         g2.setColor(new Color(255, 220, 100, 60));
@@ -357,23 +428,30 @@ public class GachaPanel extends JPanel {
     // ── Refresh helpers ───────────────────────────────────────────────────────
     private void refreshEggCount() {
         if (userId <= 0) {
-            lblEggs.setText("🥚 Telur: -");
-            btnPull.setEnabled(false);
+            // Mode offline: tampilkan telur in-memory
+            int eggs = GameState.getInstance().getOfflineEggs();
+            lblEggs.setText("Telur: " + eggs + " (Offline)");
+            btnPull.setEnabled(eggs > 0);
             return;
         }
         int eggs = DatabaseManager.getInstance().getEggs(userId);
-        lblEggs.setText("🥚 Telur: " + eggs);
+        lblEggs.setText("Telur: " + eggs);
         btnPull.setEnabled(eggs > 0 && DatabaseManager.getInstance().isConnected());
     }
 
-    // FIX: method baru untuk update label owned beast
     private void refreshOwnedCount() {
         if (userId <= 0) {
-            lblOwned.setText("Beast dimiliki: - (mode offline)");
+            // Offline: tampilkan starter count
+            lblOwned.setText("Beast dimiliki: " + GameState.getInstance().getAvailableBeasts().size() + "/24 (Offline)");
             return;
         }
         int count = DatabaseManager.getInstance().getOwnedBeastIds(userId).size();
         lblOwned.setText("Beast dimiliki: " + count + "/24");
+    }
+
+    @Override
+    public void cleanup() {
+        if (animTimer != null) animTimer.stop();
     }
 
     @Override

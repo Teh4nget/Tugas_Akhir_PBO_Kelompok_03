@@ -141,13 +141,17 @@ public class BattleController {
         int dmg = player.calculateAttackDamage(target);
         target.takeDamage(dmg);
         SoundManager.getInstance().playSFX("ATTACK");
-        log.append(String.format("⚔️ %s menyerang %s! (%d damage)\n",
+        log.append(String.format("%s menyerang %s! (%d damage)\n",
             player.getName(), target.getName(), dmg));
         if (!target.isAlive())
-            log.append(String.format("💥 %s dikalahkan!\n", target.getName()));
+            log.append(String.format("%s dikalahkan!\n", target.getName()));
 
         endTurn(actor);
-        return buildResult(log);
+        BattleResult br = buildResult(log);
+        br.damageDealt   = dmg;
+        br.targetIsEnemy = true;
+        br.targetDied    = !target.isAlive();
+        return br;
     }
 
     /**
@@ -160,7 +164,7 @@ public class BattleController {
 
         Beast player = actor.beast;
         if (player.getCurrentMana() < 30)
-            return new BattleResult("❌ Mana tidak cukup untuk Skill! (butuh 30 MP)\n",
+            return new BattleResult("Mana tidak cukup untuk Skill! (butuh 30 MP)\n",
                 false, false, false);
 
         List<Beast> enemies = state.getEnemyTeam();
@@ -175,45 +179,55 @@ public class BattleController {
         int dmg = player.calculateSkillDamage(target);
         target.takeDamage(dmg);
         SoundManager.getInstance().playSFX("SKILL");
-        log.append(String.format("✨ %s Skill → %s! (%d damage)\n",
+        log.append(String.format("* %s Skill -> %s! (%d damage)\n",
             player.getName(), target.getName(), dmg));
         if (!target.isAlive())
-            log.append(String.format("💥 %s dikalahkan!\n", target.getName()));
+            log.append(String.format("%s dikalahkan!\n", target.getName()));
 
         endTurn(actor);
-        return buildResult(log);
+        BattleResult brs = buildResult(log);
+        brs.damageDealt   = dmg;
+        brs.targetIsEnemy = true;
+        brs.targetDied    = !target.isAlive();
+        return brs;
     }
 
     /**
      * Ultimate (70 MP): serang SEMUA musuh.
      */
-    public BattleResult performUltimate() {
+    public BattleResult performUltimate(int targetIdx) {
         TurnEntry actor = getCurrentTurn();
         if (actor == null || actor.isEnemy)
             return new BattleResult("Bukan giliran player!\n", false, false, false);
 
         Beast player = actor.beast;
         if (player.getCurrentMana() < 70)
-            return new BattleResult("❌ Mana tidak cukup untuk Ultimate! (butuh 70 MP)\n",
+            return new BattleResult("Mana tidak cukup untuk Ultimate! (butuh 70 MP)\n",
                 false, false, false);
+
+        List<Beast> enemies = state.getEnemyTeam();
+        if (targetIdx < 0 || targetIdx >= enemies.size() || !enemies.get(targetIdx).isAlive())
+            return new BattleResult("Target tidak valid!\n", false, false, false);
 
         StringBuilder log = new StringBuilder();
         player.useMana(70);
         SoundManager.getInstance().playSFX("ULTIMATE");
-        log.append(String.format("💥 %s melepas ULTIMATE – semua musuh terkena!\n", player.getName()));
 
-        for (Beast e : state.getEnemyTeam()) {
-            if (e.isAlive()) {
-                int dmg = player.calculateUltimateDamage(e);
-                e.takeDamage(dmg);
-                log.append(String.format("   💢 %s terkena %d damage!\n", e.getName(), dmg));
-                if (!e.isAlive())
-                    log.append(String.format("   💥 %s dikalahkan!\n", e.getName()));
-            }
-        }
+        Beast target = enemies.get(targetIdx);
+        int dmg = player.calculateUltimateDamage(target);
+        target.takeDamage(dmg);
+
+        log.append(String.format("%s melepas ULTIMATE ke %s – %d damage!\n",
+            player.getName(), target.getName(), dmg));
+        if (!target.isAlive())
+            log.append(String.format("   💀 %s dikalahkan!\n", target.getName()));
 
         endTurn(actor);
-        return buildResult(log);
+        BattleResult bru = buildResult(log);
+        bru.damageDealt   = dmg;
+        bru.targetIsEnemy = true;
+        bru.targetDied    = !target.isAlive();
+        return bru;
     }
 
     /** Kabur: 50% berhasil */
@@ -224,7 +238,7 @@ public class BattleController {
             log.append("[RUN_SUCCESS] Berhasil kabur dari pertarungan!\n");
             return new BattleResult(log.toString(), false, false, false);
         }
-        log.append("❌ Gagal kabur! Musuh memblokir jalan!\n");
+        log.append("Gagal kabur! Musuh memblokir jalan!\n");
         // Tidak endTurn – giliran tetap milik player (bisa coba lagi / pilih aksi lain)
         return new BattleResult(log.toString(), false, false, false);
     }
@@ -267,11 +281,16 @@ public class BattleController {
                 enemy.getName(), target.getName(), dmg));
         }
         target.takeDamage(dmg);
-        if (!target.isAlive())
-            log.append(String.format("💀 %s pingsan!\n", target.getName()));
+        boolean targetJustDied = !target.isAlive();
+        if (targetJustDied)
+            log.append(String.format("%s pingsan!\n", target.getName()));
 
         endTurn(actor);
-        return buildResult(log);
+        BattleResult bre = buildResult(log);
+        bre.damageDealt   = dmg;
+        bre.targetIsEnemy = false;
+        bre.targetDied    = targetJustDied;
+        return bre;
     }
 
     // ── Build Result ──────────────────────────────────────────────────────────
@@ -307,6 +326,10 @@ public class BattleController {
         public boolean playerFainted;
         public boolean allEnemyDefeated;
         public boolean allPlayerDefeated;
+        // Info efek visual
+        public int     damageDealt  = 0;   // damage yang dilakukan
+        public boolean targetIsEnemy = true; // true = enemy kena, false = player kena
+        public boolean targetDied   = false; // target mati setelah serangan ini
 
         public BattleResult(String log, boolean playerFainted,
                             boolean allEnemyDefeated, boolean allPlayerDefeated) {

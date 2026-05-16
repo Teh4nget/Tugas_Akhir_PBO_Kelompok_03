@@ -40,7 +40,7 @@ public class StoryIntroPanel extends JPanel {
         "Di dunia Arcana, makhluk-makhluk legendaris yang disebut BEAST\n"
         + "hidup berdampingan dengan manusia selama ribuan tahun.\n\n"
         + "Enam elemen menjaga keseimbangan alam:\n"
-        + "🔥 Api · 💧 Air · 🪨 Tanah · 🌿 Daun · ☀ Cahaya · 🌑 Gelap\n\n"
+        + "Api · Air · Tanah · Daun · Cahaya · Gelap\n\n"
         + "Para Pelatih Beast menjaga kedamaian bersama sahabat mereka.\n"
         + "Selama berabad-abad, Arcana hidup dalam harmoni...",
 
@@ -73,9 +73,9 @@ public class StoryIntroPanel extends JPanel {
         "Kamu adalah seorang Pelatih Beast.\n\n"
         + "Organisasi penjaga Arcana — \"The Wardens\" — telah memilihmu\n"
         + "untuk mengemban satu tugas yang tidak bisa gagal:\n\n"
-        + "✦  Hancurkan kristal-kristal Zenith yang tersebar\n"
-        + "✦  Kalahkan Beast yang telah terkontaminasi\n"
-        + "✦  Cegah Zenith dari kebangkitannya\n\n"
+        + "*  Hancurkan kristal-kristal Zenith yang tersebar\n"
+        + "*  Kalahkan Beast yang telah terkontaminasi\n"
+        + "*  Cegah Zenith dari kebangkitannya\n\n"
         + "Dunia Arcana bergantung padamu.",
 
         // Hal. 6 – Title card
@@ -158,7 +158,7 @@ public class StoryIntroPanel extends JPanel {
         bottom.add(pageLabel, BorderLayout.WEST);
 
         // Skip
-        JButton btnSkip = makeSmallBtn("Skip ⏭");
+        JButton btnSkip = makeSmallBtn("Skip >>|");
         btnSkip.setToolTipText("Lewati cerita dan langsung bermain");
         btnSkip.addActionListener(e -> {
             SoundManager.getInstance().playSFX("CLICK");
@@ -169,7 +169,7 @@ public class StoryIntroPanel extends JPanel {
         bottom.add(btnSkip, BorderLayout.CENTER);
 
         // Lanjut / Mulai
-        btnNext = new JButton("Lanjut ▶");
+        btnNext = new JButton("Lanjut >");
         styleMainBtn(btnNext);
         btnNext.addActionListener(e -> onNext());
         bottom.add(btnNext, BorderLayout.EAST);
@@ -183,7 +183,7 @@ public class StoryIntroPanel extends JPanel {
                     typeTimer.stop();
                     storyText.setText(PAGES[pageIndex]);
                     btnNext.setEnabled(true);
-                    btnNext.setText(pageIndex == PAGES.length - 1 ? "MULAI ▶" : "Lanjut ▶");
+                    btnNext.setText(pageIndex == PAGES.length - 1 ? "MULAI >" : "Lanjut >");
                 }
             }
         });
@@ -219,7 +219,7 @@ public class StoryIntroPanel extends JPanel {
             } else {
                 ((Timer) e.getSource()).stop();
                 btnNext.setEnabled(true);
-                btnNext.setText(idx == PAGES.length - 1 ? "✦ MULAI PETUALANGAN" : "Lanjut ▶");
+                btnNext.setText(idx == PAGES.length - 1 ? "* MULAI PETUALANGAN" : "Lanjut >");
             }
         });
         typeTimer.start();

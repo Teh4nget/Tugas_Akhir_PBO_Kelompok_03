@@ -162,7 +162,7 @@ public class LoginPanel extends JPanel {
         add(lblDbStatus);
 
         // Judul game di atas card
-        JLabel gameTitle = new JLabel("🐉 BEAST CLASH", SwingConstants.CENTER);
+        JLabel gameTitle = new JLabel(" BEAST CLASH", SwingConstants.CENTER);
         gameTitle.setFont(new Font("Segoe UI", Font.BOLD, 30));
         gameTitle.setForeground(new Color(100, 180, 255));
         gameTitle.setBounds(0, 30, 520, 50);
@@ -220,7 +220,7 @@ public class LoginPanel extends JPanel {
         }
 
         if (!db.isConnected()) {
-            setStatus("⚠ Database tidak terhubung! Gunakan mode offline.", false);
+            setStatus("Database tidak terhubung! Gunakan mode offline.", false);
             return;
         }
 
@@ -248,7 +248,7 @@ public class LoginPanel extends JPanel {
                     btnAction.setEnabled(true);
                     btnAction.setText("DAFTAR SEKARANG");
                     if (uid > 0) {
-                        setStatus("✅ Akun berhasil dibuat! Silakan login.", true);
+                        setStatus("Akun berhasil dibuat! Silakan login.", true);
                         toggleMode();
                     } else if (uid == -2) {
                         setStatus("Username sudah digunakan!", false);
@@ -268,7 +268,7 @@ public class LoginPanel extends JPanel {
                     btnAction.setEnabled(true);
                     btnAction.setText("MASUK");
                     if (uid > 0) {
-                        setStatus("✅ Login berhasil! Memuat game...", true);
+                        setStatus("Login berhasil! Memuat game...", true);
                         SoundManager.getInstance().playSFX("UNLOCK");
 
                         // FIX: simpan userId dulu, lalu load semua progress dari DB
@@ -303,10 +303,10 @@ public class LoginPanel extends JPanel {
             boolean ok = db.isConnected() || db.connect();
             SwingUtilities.invokeLater(() -> {
                 if (ok) {
-                    lblDbStatus.setText("✅ Database terhubung (localhost MySQL)");
+                    lblDbStatus.setText("Database terhubung (localhost MySQL)");
                     lblDbStatus.setForeground(new Color(80, 200, 100));
                 } else {
-                    lblDbStatus.setText("⚠️ Database offline – mode offline aktif");
+                    lblDbStatus.setText("Database offline – mode offline aktif");
                     lblDbStatus.setForeground(new Color(255, 180, 60));
                     addOfflineButton();
                 }
@@ -315,22 +315,45 @@ public class LoginPanel extends JPanel {
     }
 
     private void addOfflineButton() {
-        JButton btnOffline = new JButton("▶ Main Offline (tanpa simpan)");
-        btnOffline.setBounds(135, 460, 250, 28);
-        btnOffline.setFont(new Font("Segoe UI", Font.PLAIN, 11));
-        btnOffline.setBackground(new Color(60, 60, 80));
-        btnOffline.setForeground(new Color(200, 200, 200));
+        // Tambahkan tombol offline di dalam card agar tidak tertimpa
+        JButton btnOffline = new JButton("> Main Offline (tanpa simpan)") {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(getModel().isRollover() ? new Color(80, 80, 115) : getBackground());
+                g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                g2.setColor(new Color(140, 140, 190));
+                g2.setStroke(new BasicStroke(1f));
+                g2.drawRoundRect(0, 0, getWidth()-1, getHeight()-1, 8, 8);
+                g2.setFont(getFont());
+                g2.setColor(getForeground());
+                FontMetrics fm = g2.getFontMetrics();
+                g2.drawString(getText(),
+                    (getWidth() - fm.stringWidth(getText())) / 2,
+                    (getHeight() + fm.getAscent() - fm.getDescent()) / 2);
+            }
+        };
+        btnOffline.setFont(new Font("Segoe UI", Font.BOLD, 10));
+        btnOffline.setBackground(new Color(45, 45, 75));
+        btnOffline.setForeground(new Color(200, 210, 240));
         btnOffline.setBorderPainted(false);
         btnOffline.setFocusPainted(false);
+        btnOffline.setContentAreaFilled(false);
+        btnOffline.setOpaque(false);
         btnOffline.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+
+        // Letakkan di dalam card, di bawah status label
+        // card.getBounds() = {80, 100, 360, 380} → area dalam card
+        // Posisi relatif terhadap card: x=30 (margin), lebar=300, sesuai field lain
+        btnOffline.setBounds(30, 325, 300, 30);
         btnOffline.addActionListener(e -> {
-            // FIX: userId -1 → GameState tahu mode offline, tidak query DB
             beastclash.controller.GameState.getInstance().setCurrentUserId(-1);
             frame.showStory();
         });
-        add(btnOffline);
-        revalidate();
-        repaint();
+        card.add(btnOffline);
+        card.setComponentZOrder(btnOffline, 0); // letakkan di atas
+        card.revalidate();
+        card.repaint();
     }
 
     // ── Shake animation saat login gagal ─────────────────────────────────────

@@ -25,7 +25,7 @@ import java.util.Random;
  *  • Sistem map debuff tetap ada.
  *  • Blizzard freeze, periodic damage tetap berjalan.
  */
-public class BattlePanel extends JPanel {
+public class BattlePanel extends JPanel implements MainFrame.Cleanable {
 
     private final MainFrame    frame;
     private final GameState    state;
@@ -156,25 +156,25 @@ public class BattlePanel extends JPanel {
         actionPanel.setPreferredSize(new Dimension(220, 0));
         actionPanel.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 0));
 
-        btnAttack   = makeBtn("⚔ ATTACK",          new Color(190, 55, 55));
-        btnSkill    = makeBtn("✨ SKILL (30MP)",    new Color(55, 100, 200));
-        btnUltimate = makeBtn("💥 ULTIMATE (70MP)", new Color(130, 40, 180));
-        btnRun      = makeBtn("🏃 RUN",             new Color(70, 70, 90));
+        btnAttack   = makeBtn("ATTACK",          new Color(190, 55, 55));
+        btnSkill    = makeBtn("* SKILL (30MP)",    new Color(55, 100, 200));
+        btnUltimate = makeBtn("ULTIMATE (70MP)", new Color(130, 40, 180));
+        btnRun      = makeBtn("RUN",             new Color(70, 70, 90));
 
         // Tooltip informasi tiap tombol aksi
-        btnAttack.setToolTipText("<html><b>⚔ ATTACK</b><br>"
+        btnAttack.setToolTipText("<html><b>ATTACK</b><br>"
             + "Serang 1 musuh yang dipilih.<br>"
             + "Damage = ATK − DEF/2<br>"
             + "Tidak memerlukan MP.</html>");
-        btnSkill.setToolTipText("<html><b>✨ SKILL</b> — Biaya: 30 MP<br>"
+        btnSkill.setToolTipText("<html><b>* SKILL</b> — Biaya: 30 MP<br>"
             + "Serang 1 musuh dengan kekuatan 1.5× ATK.<br>"
             + "Damage = (ATK × 1.5) − DEF/2<br>"
             + "Bonus elemen berlaku.</html>");
-        btnUltimate.setToolTipText("<html><b>💥 ULTIMATE</b> — Biaya: 70 MP<br>"
-            + "Serang SEMUA musuh sekaligus!<br>"
-            + "Damage = (ATK × 2) − DEF/3 per musuh<br>"
-            + "Sangat efektif melawan kelompok.</html>");
-        btnRun.setToolTipText("<html><b>🏃 RUN</b><br>"
+        btnUltimate.setToolTipText("<html><b>ULTIMATE</b> — Biaya: 70 MP<br>"
+            + "Serang 1 musuh yang dipilih dengan kekuatan penuh.<br>"
+            + "Damage = (ATK × 2) − DEF/3<br>"
+            + "Damage tertinggi dari semua aksi.</html>");
+        btnRun.setToolTipText("<html><b>RUN</b><br>"
             + "Coba kabur dari pertarungan.<br>"
             + "Peluang berhasil: <b>50%</b><br>"
             + "Jika gagal, giliran tetap berlanjut.</html>");
@@ -190,7 +190,7 @@ public class BattlePanel extends JPanel {
         actionPanel.add(btnRun);
 
         // ── Toggle LOG button ────────────────────────────────────────────────
-        JButton btnToggleLog = new JButton("📋 LOG");
+        JButton btnToggleLog = new JButton("LOG");
         btnToggleLog.setFont(new Font("Segoe UI", Font.BOLD, 10));
         btnToggleLog.setBackground(new Color(40, 50, 80));
         btnToggleLog.setForeground(new Color(180, 200, 240));
@@ -242,7 +242,7 @@ public class BattlePanel extends JPanel {
         header.setBackground(new Color(20, 20, 45));
         header.setBorder(BorderFactory.createEmptyBorder(3, 8, 3, 6));
 
-        JLabel lblTitle = new JLabel("📋 Battle Log");
+        JLabel lblTitle = new JLabel("Battle Log");
         lblTitle.setFont(new Font("Segoe UI", Font.BOLD, 11));
         lblTitle.setForeground(new Color(160, 200, 255));
         header.add(lblTitle, BorderLayout.WEST);
@@ -284,33 +284,87 @@ public class BattlePanel extends JPanel {
         enemyTargetBtns = new JButton[enemies.size()];
         enemyTargetPanel.setLayout(new FlowLayout(FlowLayout.CENTER, 4, 2));
 
-        // Reset target ke enemy pertama yang masih hidup
         selectedEnemyIdx = 0;
         for (int i = 0; i < enemies.size(); i++) {
             if (enemies.get(i).isAlive()) { selectedEnemyIdx = i; break; }
         }
 
+        beastclash.resources.ResourceManager rm =
+            beastclash.resources.ResourceManager.getInstance();
+
         for (int i = 0; i < enemies.size(); i++) {
             final int idx = i;
             Beast e = enemies.get(i);
-            String label = "<html><center>" + ElementColor.getEmoji(e.getElement())
-                + "<br/><small>" + truncate(e.getName(), 7) + "</small></center></html>";
-            JButton btn = new JButton(label);
-            btn.setPreferredSize(new Dimension(58, 44));
-            btn.setFont(new Font("Segoe UI", Font.PLAIN, 9));
+            Color ec = ElementColor.getColor(e.getElement());
+
+            // Tombol dengan gambar beast
+            JButton btn = new JButton() {
+                @Override protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g;
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                        RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+                    boolean sel = (idx == selectedEnemyIdx);
+                    boolean alive = e.isAlive();
+
+                    // Background
+                    g2.setColor(sel
+                        ? new Color(ec.getRed()/2, ec.getGreen()/2, ec.getBlue()/2, 230)
+                        : new Color(30, 30, 50, 200));
+                    g2.fillRoundRect(0,0,getWidth(),getHeight(),8,8);
+
+                    // Gambar beast selalu tampil — grayscale jika mati
+                    java.awt.image.BufferedImage img = rm.getBeastImg(e.getName());
+                    if (img != null) {
+                        int pad = 4;
+                        if (!alive) {
+                            // Konversi ke grayscale menggunakan ColorConvertOp
+                            java.awt.image.ColorConvertOp grayOp = new java.awt.image.ColorConvertOp(
+                                java.awt.color.ColorSpace.getInstance(java.awt.color.ColorSpace.CS_GRAY), null);
+                            java.awt.image.BufferedImage grayImg = grayOp.filter(img, null);
+                            g2.drawImage(grayImg, pad, pad, getWidth()-pad*2, getHeight()-18, null);
+                            // Overlay gelap semi-transparan
+                            g2.setColor(new Color(0, 0, 0, 100));
+                            g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                        } else {
+                            g2.drawImage(img, pad, pad, getWidth()-pad*2, getHeight()-18, null);
+                            // Overlay elemen tipis
+                            g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 30));
+                            g2.fillRoundRect(0, 0, getWidth(), getHeight(), 8, 8);
+                        }
+                    }
+
+                    // Nama di bawah
+                    g2.setFont(new Font("Segoe UI", Font.BOLD, 8));
+                    String nm = e.getName().length()>8 ? e.getName().substring(0,7)+"…" : e.getName();
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.setColor(alive ? Color.WHITE : Color.GRAY);
+                    g2.drawString(nm, (getWidth()-fm.stringWidth(nm))/2, getHeight()-4);
+
+                    // Border seleksi
+                    if (sel && alive) {
+                        g2.setColor(Color.YELLOW);
+                        g2.setStroke(new BasicStroke(2f));
+                        g2.drawRoundRect(1,1,getWidth()-2,getHeight()-2,8,8);
+                    } else {
+                        g2.setColor(alive ? ec.darker() : new Color(60,60,60));
+                        g2.setStroke(new BasicStroke(1f));
+                        g2.drawRoundRect(0,0,getWidth()-1,getHeight()-1,8,8);
+                    }
+                    g2.setStroke(new BasicStroke(1));
+                }
+            };
+            btn.setPreferredSize(new Dimension(68, 72));
+            btn.setOpaque(false);
+            btn.setContentAreaFilled(false);
+            btn.setBorderPainted(false);
             btn.setFocusPainted(false);
-            btn.setBorderPainted(true);
+            btn.setEnabled(e.isAlive());
             btn.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-            if (e.isAlive()) {
-                Color ec = ElementColor.getColor(e.getElement());
-                btn.setBackground(ec.darker().darker());
-                btn.setForeground(Color.WHITE);
-                btn.addActionListener(ev -> { selectedEnemyIdx = idx; refreshTargetButtons(); });
-            } else {
-                btn.setBackground(new Color(50, 50, 50));
-                btn.setForeground(Color.GRAY);
-                btn.setEnabled(false);
-            }
+            if (e.isAlive())
+                btn.addActionListener(ev -> { selectedEnemyIdx = idx; refreshTargetButtons(); arenaPanel.refresh(); });
+
             enemyTargetBtns[i] = btn;
             enemyTargetPanel.add(btn);
         }
@@ -321,22 +375,8 @@ public class BattlePanel extends JPanel {
 
     private void refreshTargetButtons() {
         if (enemyTargetBtns == null) return;
-        List<Beast> enemies = state.getEnemyTeam();
-        for (int i = 0; i < enemyTargetBtns.length; i++) {
-            if (i >= enemies.size()) break;
-            Beast e = enemies.get(i);
-            if (!e.isAlive()) {
-                enemyTargetBtns[i].setEnabled(false);
-                enemyTargetBtns[i].setBackground(new Color(50, 50, 50));
-            } else {
-                boolean sel = (i == selectedEnemyIdx);
-                enemyTargetBtns[i].setBorder(sel
-                    ? BorderFactory.createLineBorder(Color.YELLOW, 2)
-                    : BorderFactory.createLineBorder(new Color(100, 100, 100), 1));
-                Color ec = ElementColor.getColor(e.getElement());
-                enemyTargetBtns[i].setBackground(sel ? ec.darker() : ec.darker().darker());
-            }
-        }
+        for (JButton btn : enemyTargetBtns) if (btn != null) btn.repaint();
+        arenaPanel.refresh();
     }
 
     // =========================================================================
@@ -350,30 +390,41 @@ public class BattlePanel extends JPanel {
             addLog("⏳ Bukan giliranmu!\n"); return;
         }
         if (playerFrozen && !action.equals("run")) {
-            addLog("❄️ " + cur.beast.getName() + " sedang BEKU, tidak bisa menyerang!\n");
+            addLog("" + cur.beast.getName() + " sedang BEKU, tidak bisa menyerang!\n");
             return;
         }
 
         BattleController.BattleResult result;
         if (action.equals("run")) {
             result = battle.performRun();
-        } else if (action.equals("ultimate")) {
-            result = battle.performUltimate();
         } else {
-            // Pastikan target valid
+            // Attack, Skill, Ultimate — semuanya butuh target
             List<Beast> enemies = state.getEnemyTeam();
             if (selectedEnemyIdx >= enemies.size() || !enemies.get(selectedEnemyIdx).isAlive()) {
-                // Auto-pilih target hidup pertama
                 for (int i = 0; i < enemies.size(); i++) {
                     if (enemies.get(i).isAlive()) { selectedEnemyIdx = i; break; }
                 }
             }
-            result = action.equals("skill")
-                ? battle.performSkill(selectedEnemyIdx)
-                : battle.performAttack(selectedEnemyIdx);
+            if (action.equals("ultimate")) {
+                result = battle.performUltimate(selectedEnemyIdx);
+            } else if (action.equals("skill")) {
+                result = battle.performSkill(selectedEnemyIdx);
+            } else {
+                result = battle.performAttack(selectedEnemyIdx);
+            }
         }
 
         addLog(result.log);
+
+        // ── Efek visual ───────────────────────────────────────────────────────
+        if (result.damageDealt > 0) {
+            boolean isCrit = action.equals("skill") || action.equals("ultimate");
+            arenaPanel.triggerHitEffect(result.damageDealt, isCrit, result.targetIsEnemy);
+            arenaPanel.triggerShake(isCrit);
+        }
+        if (result.targetDied) {
+            arenaPanel.triggerDeathEffect(result.targetIsEnemy);
+        }
 
         if (result.log.contains("[RUN_SUCCESS]")) {
             battleEnded = true;
@@ -407,6 +458,16 @@ public class BattlePanel extends JPanel {
             if (battleEnded) return;
             BattleController.BattleResult res = battle.performEnemyTurn();
             addLog(res.log);
+
+            // ── Efek visual enemy ─────────────────────────────────────────────
+            if (res.damageDealt > 0) {
+                arenaPanel.triggerHitEffect(res.damageDealt, false, res.targetIsEnemy);
+                arenaPanel.triggerShake(false);
+            }
+            if (res.targetDied) {
+                arenaPanel.triggerDeathEffect(res.targetIsEnemy);
+            }
+
             checkBlizzardFreeze();
             refreshAll();
             enemyTurnPending = false;
@@ -432,13 +493,13 @@ public class BattlePanel extends JPanel {
         GameMap map = state.getSelectedMap();
         if (map == null) return;
         switch (map.getName()) {
-            case "Hutan Hijau":
+            case "Plains":
                 applyDebuff("Api",    0.80f, 1f,    1f, false);
                 break;
-            case "Desert":
+            case "Dessert":
                 applyDebuff("Air",    1f,    0.75f, 1f, false);
                 break;
-            case "Lautan Biru":
+            case "Sea":
                 applyDebuff("Api",    0.70f, 0.80f, 1f, false);
                 applyDebuff("Daun",   1f,    1f,    0.80f, false);
                 break;
@@ -452,7 +513,7 @@ public class BattlePanel extends JPanel {
                 applyDebuff("Tanah",  1f,    0.80f, 1f, false);
                 applyDebuff("Api",    1.15f, 1f,    1f, true);
                 break;
-            case "Hutan Gelap":
+            case "Dark Forest":
                 applyDebuff("Cahaya", 0.65f, 0.65f, 1f, false);
                 applyDebuff("Gelap",  1.20f, 1.15f, 1f, true);
                 for (String e : new String[]{"Api","Air","Tanah","Daun"})
@@ -478,22 +539,70 @@ public class BattlePanel extends JPanel {
         String n = map.getName();
 
         switch (n) {
-            case "Hutan Hijau":
-                addLog("🌿 [MAP] Hutan Hijau: beast Api ATK-20%\n"); break;
-            case "Desert":
-                addLog("🌵 [MAP] Desert: -3HP/3dtk (imun:Api) | Air DEF-25%\n");
-                startPeriodicDamage(3, 3000, "Api",
-                    "🌵 [Desert] %s terkena 3 damage dari pasir!\n"); break;
-            case "Lautan Biru":
-                addLog("🌊 [MAP] Lautan: Api ATK/DEF↓ | Daun SPD-20%\n"); break;
+            case "Plains":
+                addLog("Plains: Beast Api ATK -20%\n");
+                applyElementDebuff("Api", 0.80f, 1f, 1f);
+                break;
+            case "Sea":
+                addLog("Sea: Beast Api ATK/DEF berkurang | Beast Daun SPD -20%\n");
+                applyElementDebuff("Api",  0.70f, 0.80f, 1f);
+                applyElementDebuff("Daun", 1f,    1f,    0.80f);
+                break;
+            case "Dessert":
+                addLog("Dessert: -3 HP/3 dtk (imun: Api & Tanah) | Air DEF-25% | Daun ATK-15%\n");
+                applyElementDebuff("Air",  1f,    0.75f, 1f);
+                applyElementDebuff("Daun", 0.85f, 1f,    1f);
+                startPeriodicDamage(3, 3000, "Tanah",
+                    "%s terkena 3 damage dari panas pasir!\n");
+                break;
             case "Blizzard":
-                addLog("❄️ [MAP] Blizzard: Api ATK/DEF↓ | Air DEF+10% | Freeze chance\n"); break;
+                addLog("Blizzard: Api ATK/DEF berkurang | Cahaya DEF+15% | Gelap DEF-20%\n");
+                applyElementDebuff("Api",   0.65f, 0.75f, 1f);
+                applyElementDebuff("Daun",  0.80f, 1f,    1f);
+                applyElementBonus("Cahaya", 1f,    1.15f, 1f);
+                applyElementDebuff("Gelap", 1f,    0.80f, 1f);
+                break;
             case "Volcano":
-                addLog("🌋 [MAP] Volcano: -5HP/3dtk (imun:Api) | Air ATK/DEF↓ | Api ATK+15%\n");
+                addLog("Volcano: -5 HP/3 dtk (imun: Api) | Air ATK/DEF berkurang | Api ATK+15%\n");
+                applyElementDebuff("Air",   0.60f, 0.70f, 1f);
+                applyElementDebuff("Tanah", 1f,    0.80f, 1f);
+                applyElementBonus("Api",    1.15f, 1f,    1f);
                 startPeriodicDamage(5, 3000, "Api",
-                    "🌋 [Volcano] %s terkena 5 damage dari lahar!\n"); break;
-            case "Hutan Gelap":
-                addLog("🌑 [MAP] Hutan Gelap: Cahaya↓↓ | Gelap↑↑ | Lain DEF-10%\n"); break;
+                    "%s terkena 5 damage dari lahar!\n");
+                break;
+            case "Dark Forest":
+                addLog("Dark Forest: Cahaya ATK/DEF berkurang | Gelap ATK/DEF meningkat\n");
+                applyElementDebuff("Cahaya", 0.65f, 0.65f, 1f);
+                applyElementBonus("Gelap",   1.20f, 1.15f, 1f);
+                for (String elem : new String[]{"Api","Air","Tanah","Daun"})
+                    applyElementDebuff(elem, 1f, 0.90f, 1f);
+                break;
+        }
+    }
+
+    private void applyElementDebuff(String element, float atkMult, float defMult, float spdMult) {
+        applyStatMultiplier(element, atkMult, defMult, spdMult, false);
+    }
+
+    private void applyElementBonus(String element, float atkMult, float defMult, float spdMult) {
+        applyStatMultiplier(element, atkMult, defMult, spdMult, true);
+    }
+
+    private void applyStatMultiplier(String element, float atkMult, float defMult,
+                                     float spdMult, boolean isBonus) {
+        List<Beast> team = state.getPlayerTeam();
+        if (team == null) return;
+        for (Beast b : team) {
+            if (!b.getElement().equals(element)) continue;
+            if (atkMult != 1f) b.multiplyAttack(atkMult);
+            if (defMult != 1f) b.multiplyDefense(defMult);
+            if (spdMult != 1f) b.multiplySpeed(spdMult);
+            String tag = isBonus ? "BONUS" : "DEBUFF";
+            addLog(tag + " [" + element + "] " + b.getName()
+                + (atkMult != 1f ? String.format(" ATK x%.0f%%", atkMult * 100) : "")
+                + (defMult != 1f ? String.format(" DEF x%.0f%%", defMult * 100) : "")
+                + (spdMult != 1f ? String.format(" SPD x%.0f%%", spdMult * 100) : "")
+                + "\n");
         }
     }
 
@@ -519,41 +628,45 @@ public class BattlePanel extends JPanel {
         attackCounter++;
         if (attackCounter % 5 != 0) return;
 
-        // Cek semua beast player (yang aktif giliran)
         TurnEntry cur = battle.getCurrentTurn();
         if (cur == null || cur.isEnemy || playerFrozen) return;
+
         Beast b = cur.beast;
-        int chance = b.getElement().equals("Air") ? 5 : 20; // Air kebal (5%), lain 20%
-        if (rng.nextInt(100) < chance) {
-            playerFrozen = true;
-            setActionsEnabled(false);
-            addLog("❄️ [Blizzard] " + b.getName() + " DIBEKUKAN 3 detik!\n");
-            mapEffectLabel.setText("❄️ " + b.getName() + " BEKU!");
-            mapEffectLabel.setForeground(new Color(100, 200, 255));
-            freezeTimer = new Timer(3000, ev -> {
-                playerFrozen = false;
-                if (!battleEnded) {
-                    setActionsEnabled(true);
-                    addLog("❄️ " + b.getName() + " sudah bebas dari beku!\n");
-                    mapEffectLabel.setText(getMapEffectText());
-                    mapEffectLabel.setForeground(new Color(200, 180, 120));
-                }
-            });
-            freezeTimer.setRepeats(false);
-            freezeTimer.start();
-        }
+        // Cahaya kebal beku (bonus Blizzard), Air mudah beku (40%), lain 25%
+        int chance = b.getElement().equals("Cahaya") ? 0
+                   : b.getElement().equals("Air")    ? 40 : 25;
+        if (rng.nextInt(100) >= chance) return;
+
+        // Beast terkena beku
+        playerFrozen = true;
+        setActionsEnabled(false);
+        addLog(b.getName() + " DIBEKUKAN selama 1 giliran!\n");
+        mapEffectLabel.setText(b.getName() + " BEKU!");
+        mapEffectLabel.setForeground(new Color(100, 200, 255));
+
+        // Skip giliran player ini — langsung ke giliran berikutnya setelah delay singkat
+        new Timer(1200, ev -> {
+            ((Timer) ev.getSource()).stop();
+            if (battleEnded) return;
+            playerFrozen = false;
+            mapEffectLabel.setText(getMapEffectText());
+            mapEffectLabel.setForeground(new Color(200, 180, 120));
+            addLog(b.getName() + " bebas dari beku.\n");
+            // Paksa lanjut ke giliran berikutnya
+            scheduleNextTurn();
+        }) {{ setRepeats(false); start(); }};
     }
 
     private String getMapEffectText() {
         GameMap map = state.getSelectedMap();
         if (map == null) return "";
         switch (map.getName()) {
-            case "Hutan Hijau": return "🌿 Api ATK-20%";
-            case "Desert":      return "🌵 -3HP/3dtk | Air DEF-25%";
-            case "Lautan Biru": return "🌊 Api↓ Daun SPD-20%";
-            case "Blizzard":    return "❄️ Freeze | Api↓ Air DEF+10%";
-            case "Volcano":     return "🌋 -5HP/3dtk | Air↓ Api ATK+15%";
-            case "Hutan Gelap": return "🌑 Cahaya↓↓ Gelap↑↑";
+            case "Plains":      return "Api ATK -20%";
+            case "Sea":         return "Api ATK/DEF berkurang | Daun SPD -20%";
+            case "Dessert":     return "-3HP/3dtk (imun:Api&Tanah) | Air DEF-25%";
+            case "Blizzard":    return "Api ATK/DEF berkurang | Cahaya DEF+15% | Freeze";
+            case "Volcano":     return "-5HP/3dtk (imun:Api) | Air berkurang | Api ATK+15%";
+            case "Dark Forest": return "Cahaya ATK/DEF berkurang | Gelap ATK/DEF meningkat";
             default:            return "";
         }
     }
@@ -561,6 +674,16 @@ public class BattlePanel extends JPanel {
     private void stopMapTimers() {
         if (mapDamageTimer != null) mapDamageTimer.stop();
         if (freezeTimer    != null) freezeTimer.stop();
+    }
+
+    /** Dipanggil oleh MainFrame saat panel ini diganti — hentikan semua timer. */
+    @Override
+    public void cleanup() {
+        battleEnded = true;
+        stopMapTimers();
+        if (arenaPanel != null && arenaPanel.shakeTimer != null) arenaPanel.shakeTimer.stop();
+        if (arenaPanel != null && arenaPanel.effectTimer != null) arenaPanel.effectTimer.stop();
+        if (logWindow  != null) { logWindow.dispose(); logWindow = null; }
     }
 
     // =========================================================================
@@ -572,18 +695,18 @@ public class BattlePanel extends JPanel {
         setActionsEnabled(false);
         SoundManager.getInstance().playSFX("VICTORY_SFX");
         state.addEggReward(1);
-        addLog("🎉 MENANG! +1 🥚 Telur\n");
+        addLog("! MENANG! +1 Telur Telur\n");
 
         GameMap map = state.getSelectedMap();
         if (map != null) {
             map.completeLevel();
-            // Cek apakah map ini sudah fully completed → buka map berikutnya
+            // Cek apakah map ini sudah fully completed -> buka map berikutnya
             if (map.isFullyCompleted()) {
                 List<GameMap> maps = state.getMaps();
                 for (int i = 0; i < maps.size() - 1; i++) {
                     if (maps.get(i) == map && !maps.get(i + 1).isUnlocked()) {
                         maps.get(i + 1).setUnlocked(true);
-                        addLog("🗺 Map baru terbuka: " + maps.get(i + 1).getName() + "!\n");
+                        addLog("Map baru terbuka: " + maps.get(i + 1).getName() + "!\n");
                     }
                 }
             }
@@ -606,7 +729,7 @@ public class BattlePanel extends JPanel {
     private void showVictoryDialog(GameMap map) {
         String msg = "🏆 Level " + state.getCurrentLevel() + " selesai!";
         if (map != null && map.isFullyCompleted())
-            msg += "\n🗺 Map " + map.getName() + " telah diselesaikan!";
+            msg += "\nMap " + map.getName() + " telah diselesaikan!";
         String[] opts = {"Level Berikutnya", "Kembali ke Map"};
         int choice = JOptionPane.showOptionDialog(this, msg, "MENANG!",
             JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE,
@@ -645,9 +768,8 @@ public class BattlePanel extends JPanel {
             for (Beast b : state.getPlayerTeam()) if (b.isAlive()) { showBeast = b; break; }
         }
         if (showBeast != null) {
-            lblPlayerName.setText(showBeast.getName() + (playerFrozen ? " ❄️" : ""));
-            lblPlayerElem.setText(ElementColor.getEmoji(showBeast.getElement())
-                + " " + showBeast.getElement());
+            lblPlayerName.setText(showBeast.getName() + (playerFrozen ? " (Beku)" : ""));
+            lblPlayerElem.setText(showBeast.getElement());
             lblPlayerElem.setForeground(ElementColor.getColor(showBeast.getElement()));
             hpBarPlayer.update(showBeast.getCurrentHP(), showBeast.getMaxHP());
             mpBarPlayer.update(showBeast.getCurrentMana(), showBeast.getMaxMana());
@@ -706,83 +828,92 @@ public class BattlePanel extends JPanel {
             super.paintComponent(g);
             Graphics2D g2 = (Graphics2D) g;
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
             int w = getWidth(), h = getHeight();
 
-            // Label "URUTAN GILIRAN"
             g2.setFont(new Font("Segoe UI", Font.BOLD, 9));
             g2.setColor(new Color(140, 140, 180));
             g2.drawString("URUTAN GILIRAN", 4, 12);
 
             if (queue.isEmpty()) return;
 
-            int totalBeasts = queue.size();
-            int iconSize    = Math.min(44, (w - 100) / Math.max(totalBeasts, 1));
-            int iconH       = iconSize;
-            int startX      = 80;
-            int centerY     = h / 2 + 4;
+            int iconSize = Math.min(46, (w - 100) / Math.max(queue.size(), 1));
+            int iconH    = iconSize;
+            int startX   = 80;
+            int centerY  = h / 2 + 4;
 
-            // Garis timeline
             g2.setColor(new Color(50, 50, 80));
             g2.setStroke(new BasicStroke(1.5f));
             g2.drawLine(startX, centerY, w - 10, centerY);
             g2.setStroke(new BasicStroke(1));
 
-            // Gambar ikon setiap beast sesuai urutan
+            beastclash.resources.ResourceManager rm =
+                beastclash.resources.ResourceManager.getInstance();
+
             for (int i = 0; i < queue.size(); i++) {
                 TurnEntry e = queue.get(i);
                 if (!e.beast.isAlive()) continue;
 
                 int x = startX + i * (iconSize + 6);
                 int y = centerY - iconH / 2;
-
                 boolean isCurrent = (current != null && e == current);
-
-                // Background ikon
                 Color ec = ElementColor.getColor(e.beast.getElement());
+
+                // Background bulat ikon
                 if (!e.isEnemy) {
-                    g2.setColor(isCurrent
-                        ? new Color(60, 180, 255, 220)
-                        : new Color(30, 100, 160, 180));
+                    g2.setColor(isCurrent ? new Color(40,140,220,200) : new Color(20,70,130,160));
                 } else {
-                    g2.setColor(isCurrent
-                        ? new Color(255, 80, 80, 220)
-                        : new Color(120, 30, 30, 180));
+                    g2.setColor(isCurrent ? new Color(220,60,60,200) : new Color(100,20,20,160));
                 }
                 g2.fillRoundRect(x, y, iconSize, iconH, 8, 8);
 
-                // Border – highlight giliran aktif
+                // Gambar aset beast di ikon (player: flip, enemy: asli)
+                java.awt.image.BufferedImage img = e.isEnemy
+                    ? rm.getBeastForEnemy(e.beast.getName())
+                    : rm.getBeastForPlayer(e.beast.getName());
+                if (img != null) {
+                    // Clip ke area ikon agar tidak keluar
+                    Shape clip = g2.getClip();
+                    g2.setClip(x+1, y+1, iconSize-2, iconH-2);
+                    g2.drawImage(img, x, y, iconSize, iconH, null);
+                    g2.setClip(clip);
+                    // Overlay warna elemen tipis agar tetap ada identitas
+                    g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 40));
+                    g2.fillRoundRect(x, y, iconSize, iconH, 8, 8);
+                } else {
+                    // Fallback: emoji elemen
+                    g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+                    g2.setColor(Color.WHITE);
+                    String emoji = ElementColor.getEmoji(e.beast.getElement());
+                    FontMetrics fm = g2.getFontMetrics();
+                    g2.drawString(emoji, x + (iconSize - fm.stringWidth(emoji))/2, y + iconH/2 + 5);
+                }
+
+                // Border aktif (kuning) atau elemen
                 if (isCurrent) {
                     g2.setColor(Color.YELLOW);
                     g2.setStroke(new BasicStroke(2.5f));
                     g2.drawRoundRect(x, y, iconSize, iconH, 8, 8);
                     g2.setStroke(new BasicStroke(1));
-                    // Panah di atas
-                    g2.setColor(Color.YELLOW);
-                    int ax = x + iconSize / 2;
-                    g2.fillPolygon(new int[]{ax-5, ax+5, ax}, new int[]{y-8, y-8, y-2}, 3);
+                    int ax = x + iconSize/2;
+                    g2.fillPolygon(new int[]{ax-5,ax+5,ax}, new int[]{y-8,y-8,y-2}, 3);
                 } else {
                     g2.setColor(ec.darker());
                     g2.drawRoundRect(x, y, iconSize, iconH, 8, 8);
                 }
 
-                // Elemen emoji + nama pendek
-                g2.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-                g2.setColor(Color.WHITE);
-                String emoji = ElementColor.getEmoji(e.beast.getElement());
-                FontMetrics fm = g2.getFontMetrics();
-                g2.drawString(emoji, x + (iconSize - fm.stringWidth(emoji)) / 2, y + iconH / 2 + 2);
-
-                // Nama (di bawah ikon)
+                // Nama singkat di bawah ikon
                 g2.setFont(new Font("Segoe UI", Font.PLAIN, 8));
-                g2.setColor(isCurrent ? Color.YELLOW : new Color(200, 200, 200));
-                String shortName = truncate(e.beast.getName(), 6);
-                fm = g2.getFontMetrics();
-                g2.drawString(shortName, x + (iconSize - fm.stringWidth(shortName)) / 2, y + iconH + 10);
+                g2.setColor(isCurrent ? Color.YELLOW : new Color(200,200,200));
+                String shortName = e.beast.getName().length() > 7
+                    ? e.beast.getName().substring(0,6)+"…" : e.beast.getName();
+                FontMetrics fm2 = g2.getFontMetrics();
+                g2.drawString(shortName, x + (iconSize - fm2.stringWidth(shortName))/2, y + iconH + 10);
 
-                // Tag P/E kecil
+                // Tag P/E
                 g2.setFont(new Font("Segoe UI", Font.BOLD, 7));
-                g2.setColor(e.isEnemy ? new Color(255, 150, 150) : new Color(150, 220, 255));
-                g2.drawString(e.isEnemy ? "E" : "P", x + 2, y + 9);
+                g2.setColor(e.isEnemy ? new Color(255,150,150) : new Color(150,220,255));
+                g2.drawString(e.isEnemy ? "E" : "P", x+2, y+9);
             }
         }
     }
@@ -790,291 +921,441 @@ public class BattlePanel extends JPanel {
     // =========================================================================
     //  BATTLE ARENA
     // =========================================================================
+    // =========================================================================
+    //  BATTLE ARENA
+    // =========================================================================
     class BattleArena extends JPanel {
-        private int shakeX = 0, shakeY = 0;
-        private Timer shakeTimer;
+        int shakeX = 0, shakeY = 0;
+        Timer shakeTimer;
+        Timer effectTimer;
+
+        // Cache background
+        private Image cachedBg;
+        private int   cachedBgW = -1, cachedBgH = -1;
+
+        // ── Efek list (max 1 per jenis agar tidak menumpuk) ───────────────────
+        // HitEffect: [x, y, vy, alpha, damage, isCrit, isEnemy]
+        private final java.util.List<float[]> hitEffects   = new java.util.ArrayList<>();
+        // FlashEffect: [x, y, w, h, alpha, isEnemy, spriteX,spriteY,spriteW,spriteH]
+        private final java.util.List<float[]> flashEffects = new java.util.ArrayList<>();
+        // DeathEffect: array per shard [shardX,shardY,vx,vy,rot,rotV,size] + metadata
+        private final java.util.List<float[][]> deathEffects = new java.util.ArrayList<>();
+        private final java.util.List<float[]>   deathMeta    = new java.util.ArrayList<>(); // [cx,cy,alpha,isEnemy]
+
+        // ── Trigger dari luar ─────────────────────────────────────────────────
+        void triggerHitEffect(int damage, boolean isCrit, boolean isEnemy) {
+            // Bersihkan efek LAMA sebelum tambah baru agar tidak menumpuk
+            hitEffects.clear();
+            flashEffects.clear();
+
+            int W = getWidth(), H = getHeight();
+            Random rnd = new Random();
+            // Gunakan formula SAMA seperti paintComponent agar ukuran flash sesuai sprite
+            int spriteSize = Math.min(W / 4, (int)((H - 80) * 0.72));
+            int groundY    = H - 60;
+
+            // Posisi teks damage (di atas sprite, sedikit random)
+            int tx = isEnemy
+                ? (int)(W * 0.88) - spriteSize/2 + rnd.nextInt(30) - 15
+                : (int)(W * 0.12) + spriteSize/2 + rnd.nextInt(30) - 15;
+            int ty = groundY - spriteSize - 10 + rnd.nextInt(20);
+
+            // Posisi sprite yang kena
+            int sx = isEnemy ? (int)(W * 0.88) - spriteSize : (int)(W * 0.12);
+            int sy = groundY - spriteSize;
+
+            // [x, y, vy, alpha, damage, isCrit(1=yes), isEnemy(1=yes)]
+            hitEffects.add(new float[]{tx, ty, -3.0f, 1.0f, damage, isCrit?1f:0f, isEnemy?1f:0f});
+            // [x, y, w, h, alpha, isEnemy, spriteX, spriteY, spriteW, spriteH]
+            flashEffects.add(new float[]{sx, sy, spriteSize, spriteSize, 1.0f, isEnemy?1f:0f,
+                sx, sy, spriteSize, spriteSize});
+
+            // Jalankan timer animasi efek secara mandiri
+            startEffectTimer();
+        }
+
+        void triggerDeathEffect(boolean isEnemy) {
+            // Bersihkan death effect lama
+            deathEffects.clear();
+            deathMeta.clear();
+
+            int W = getWidth(), H = getHeight();
+            // Gunakan formula SAMA seperti paintComponent agar posisi death effect akurat
+            int spriteSize = Math.min(W / 4, (int)((H - 80) * 0.72));
+            int groundY    = H - 60;
+            float cx = isEnemy
+                ? (float)(W * 0.88) - spriteSize/2f
+                : (float)(W * 0.12) + spriteSize/2f;
+            float cy = groundY - spriteSize/2f;
+
+            Random rnd = new Random();
+            float[][] shards = new float[20][7];
+            for (int i = 0; i < 20; i++) {
+                double ang = Math.PI * 2 * i / 20 + rnd.nextGaussian() * 0.3;
+                float spd  = 2f + rnd.nextFloat() * 5f;
+                shards[i][0] = cx;
+                shards[i][1] = cy;
+                shards[i][2] = (float)(Math.cos(ang) * spd);
+                shards[i][3] = (float)(Math.sin(ang) * spd) - 2f;
+                shards[i][4] = rnd.nextFloat() * 360;
+                shards[i][5] = (rnd.nextFloat() - 0.5f) * 16f;
+                shards[i][6] = 7 + rnd.nextFloat() * 13f;
+            }
+            deathEffects.add(shards);
+            deathMeta.add(new float[]{cx, cy, 1.0f, isEnemy?1f:0f});
+            SoundManager.getInstance().playSFX("FREEZE");
+
+            // Jalankan timer animasi efek secara mandiri
+            startEffectTimer();
+        }
+
+        // Timer animasi efek yang berjalan mandiri (30fps)
+        // effectTimer deklarasi di atas (package-visible untuk cleanup)
+        private void startEffectTimer() {
+            if (effectTimer != null && effectTimer.isRunning()) return; // sudah berjalan
+            effectTimer = new Timer(33, e -> {
+                // Tick semua efek
+                hitEffects.removeIf(h -> h[3] <= 0);
+                for (float[] h : hitEffects) { h[1] += h[2]; h[2] *= 0.92f; h[3] -= 0.028f; }
+                flashEffects.removeIf(f -> f[4] <= 0);
+                for (float[] f : flashEffects) f[4] -= 0.13f;
+                for (int i = deathMeta.size()-1; i >= 0; i--) {
+                    float[] meta = deathMeta.get(i);
+                    meta[2] -= 0.020f;
+                    if (meta[2] <= 0) { deathMeta.remove(i); deathEffects.remove(i); continue; }
+                    for (float[] s : deathEffects.get(i)) {
+                        s[0]+=s[2]; s[1]+=s[3]; s[3]+=0.18f; s[4]+=s[5]; s[2]*=0.95f;
+                    }
+                }
+                repaint();
+                // Stop timer jika semua efek selesai
+                if (hitEffects.isEmpty() && flashEffects.isEmpty() && deathMeta.isEmpty()) {
+                    effectTimer.stop();
+                }
+            });
+            effectTimer.start();
+        }
+
+        // ── Tick efek ─────────────────────────────────────────────────────────
+        void refresh() {
+            // Animasi efek ditangani oleh effectTimer mandiri di triggerHitEffect/triggerDeathEffect
+            repaint();
+        }
+
+        void triggerShake(boolean big) {
+            if (shakeTimer != null) shakeTimer.stop();
+            int amp = big ? 8 : 4;
+            int[] cnt = {0};
+            shakeTimer = new Timer(45, e -> {
+                cnt[0]++;
+                shakeX = (cnt[0] % 2 == 0) ? amp : -amp;
+                shakeY = (cnt[0] % 3 == 0) ? amp/2 : 0;
+                if (cnt[0] > 6) { shakeX=0; shakeY=0; shakeTimer.stop(); }
+                repaint();
+            });
+            shakeTimer.start();
+        }
 
         BattleArena() {
             setBackground(Color.BLACK);
             setMinimumSize(new Dimension(300, 200));
         }
 
-        void triggerShake(boolean big) {
-            if (shakeTimer != null) shakeTimer.stop();
-            int amp = big ? 8 : 4;
-            final int[] cnt = {0};
-            shakeTimer = new Timer(45, e -> {
-                cnt[0]++;
-                shakeX = (cnt[0] % 2 == 0) ? amp : -amp;
-                shakeY = (cnt[0] % 3 == 0) ? amp / 2 : 0;
-                if (cnt[0] > 6) { shakeX = 0; shakeY = 0; shakeTimer.stop(); }
-                repaint();
-            });
-            shakeTimer.start();
-        }
-
-        void refresh() { repaint(); }
-
         @Override
         protected void paintComponent(Graphics g) {
             super.paintComponent(g);
             Graphics2D g2 = (Graphics2D) g;
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            int w = getWidth(), h = getHeight();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING,  RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+
+            int W = getWidth(), H = getHeight();
             g2.translate(shakeX, shakeY);
 
-            drawBackground(g2, w, h);
+            drawMapBackground(g2, W, H);
 
             List<Beast> enemies = state.getEnemyTeam();
             List<Beast> players = state.getPlayerTeam();
             TurnEntry   cur     = battle.getCurrentTurn();
 
-            // ── Gambar enemy di bagian atas arena ──────────────────────────────
-            int n = enemies.size();
-            int eW = Math.min(70, (w - 20) / Math.max(n, 1));
-            int eH = eW;
-            int eStartX = (w - n * (eW + 8)) / 2;
-            for (int i = 0; i < n; i++) {
-                Beast e = enemies.get(i);
-                int ex = eStartX + i * (eW + 8);
-                int ey = 14;
-                boolean active = (cur != null && cur.isEnemy && cur.teamIndex == i);
-                boolean isTarget = (i == selectedEnemyIdx && e.isAlive());
-                drawBeastSprite(g2, ex, ey, eW, eH, e, false, active, isTarget);
-                // HP mini bar
-                drawMiniBar(g2, ex, ey + eH + 2, eW, 6, e.getCurrentHP(), e.getMaxHP(),
-                    new Color(220, 70, 70));
+            int spriteSize = Math.min(W / 4, (int)((H - 80) * 0.72)); // lebih kecil
+            int groundY    = H - 60;
+
+            // ── Player: kiri bawah, menghadap kanan ───────────────────────────
+            Beast activePlayer = null;
+            if (cur != null && !cur.isEnemy) activePlayer = cur.beast;
+            else for (Beast b : players) if (b.isAlive()) { activePlayer = b; break; }
+
+            if (activePlayer != null) {
+                int px = (int)(W * 0.12);
+                int py = groundY - spriteSize;
+                boolean pActive = (cur != null && !cur.isEnemy);
+                drawBeastSprite(g2, px, py, spriteSize, spriteSize, activePlayer, true, pActive, false);
+                drawMiniBar(g2, px, py+spriteSize+4, spriteSize, 8,
+                    activePlayer.getCurrentHP(), activePlayer.getMaxHP(), new Color(60,210,80));
+                drawMiniBar(g2, px, py+spriteSize+14, spriteSize, 5,
+                    activePlayer.getCurrentMana(), activePlayer.getMaxMana(), new Color(60,120,220));
+                drawBeastLabel(g2, px+spriteSize/2, py+spriteSize+28, activePlayer, false);
             }
 
-            // ── Gambar player di bagian bawah arena ───────────────────────────
-            int p = players.size();
-            int pW = Math.min(72, (w - 20) / Math.max(p, 1));
-            int pH = pW;
-            int pStartX = (w - p * (pW + 6)) / 2;
-            int pY = h - pH - 28;
-            for (int i = 0; i < p; i++) {
-                Beast b = players.get(i);
-                int px = pStartX + i * (pW + 6);
-                boolean active = (cur != null && !cur.isEnemy && cur.teamIndex == i);
-                drawBeastSprite(g2, px, pY, pW, pH, b, true, active, false);
-                drawMiniBar(g2, px, pY + pH + 2, pW, 6, b.getCurrentHP(), b.getMaxHP(),
-                    new Color(70, 220, 70));
-                drawMiniBar(g2, px, pY + pH + 10, pW, 4, b.getCurrentMana(), b.getMaxMana(),
-                    new Color(70, 120, 220));
+            // ── Enemy: kanan bawah, menghadap kiri ───────────────────────────
+            Beast activeEnemy = null;
+            int activeEnemyIdx2 = selectedEnemyIdx;
+            if (activeEnemyIdx2 < enemies.size()) activeEnemy = enemies.get(activeEnemyIdx2);
+            if (activeEnemy == null || !activeEnemy.isAlive()) {
+                for (int i = 0; i < enemies.size(); i++) {
+                    if (enemies.get(i).isAlive()) { activeEnemy = enemies.get(i); activeEnemyIdx2=i; break; }
+                }
+            }
+            if (activeEnemy != null) {
+                int ex = (int)(W * 0.88) - spriteSize;
+                int ey = groundY - spriteSize;
+                boolean eActive  = (cur != null && cur.isEnemy);
+                boolean isTarget = (activeEnemyIdx2 == selectedEnemyIdx);
+                drawBeastSprite(g2, ex, ey, spriteSize, spriteSize, activeEnemy, false, eActive, isTarget);
+                drawMiniBar(g2, ex, ey+spriteSize+4, spriteSize, 8,
+                    activeEnemy.getCurrentHP(), activeEnemy.getMaxHP(), new Color(220,60,60));
+                drawBeastLabel(g2, ex+spriteSize/2, ey+spriteSize+18, activeEnemy, true);
             }
 
             g2.translate(-shakeX, -shakeY);
+
+            // ── Render Flash (overlay mengikuti bentuk sprite) ─────────────────
+            for (float[] f : flashEffects) {
+                float a = Math.max(0, Math.min(1, f[4]));
+                if (a <= 0) continue;
+                int fx = (int)f[0], fy = (int)f[1], fw = (int)f[2], fh = (int)f[3];
+                boolean fEnemy = (f[5] == 1f);
+                // Ambil gambar beast yang terkena untuk AlphaComposite
+                String bname = fEnemy
+                    ? (activeEnemy  != null ? activeEnemy.getName()  : "")
+                    : (activePlayer != null ? activePlayer.getName() : "");
+                java.awt.image.BufferedImage bimg = fEnemy
+                    ? beastclash.resources.ResourceManager.getInstance().getBeastForEnemy(bname)
+                    : beastclash.resources.ResourceManager.getInstance().getBeastForPlayer(bname);
+
+                if (bimg != null) {
+                    java.awt.image.BufferedImage tinted = tintImage(bimg,
+                        fEnemy ? new Color(255, 50, 50, (int)(a*200))
+                               : new Color(255, 150, 30, (int)(a*200)));
+                    g2.drawImage(tinted, fx, fy, fw, fh, null);
+                } else {
+                    // Fallback: overlay warna transparan (no box)
+                    g2.setColor(fEnemy ? new Color(255,50,50,(int)(a*80))
+                                       : new Color(255,150,30,(int)(a*80)));
+                    g2.fillOval(fx + fw/4, fy + fh/4, fw/2, fh/2);
+                }
+                // Ring kilat dihapus — tidak ada kotak mengembang
+            }
+
+            // ── Render Hit Effects (angka damage melayang) ────────────────────
+            for (float[] h : hitEffects) {
+                float a = Math.max(0, Math.min(1, h[3]));
+                if (a <= 0) continue;
+                boolean crit   = (h[5] == 1f);
+                boolean hEnemy = (h[6] == 1f);
+                String dmgStr  = (crit ? "* " : "") + (int)h[4];
+                Font dmgFont   = new Font("Segoe UI", Font.BOLD, crit ? 30 : 24);
+                g2.setFont(dmgFont);
+                FontMetrics fm = g2.getFontMetrics();
+                int tx2 = (int)h[0] - fm.stringWidth(dmgStr)/2;
+                int ty2 = (int)h[1];
+
+                Color textCol = crit ? new Color(255,220,0) :
+                                hEnemy ? new Color(255,70,70) :
+                                         new Color(255,160,40);
+
+                // Outline hitam
+                g2.setColor(new Color(0,0,0,(int)(a*220)));
+                for (int dx=-2; dx<=2; dx++)
+                    for (int dy=-2; dy<=2; dy++)
+                        if (dx!=0||dy!=0) g2.drawString(dmgStr, tx2+dx, ty2+dy);
+                // Teks
+                g2.setColor(new Color(textCol.getRed(), textCol.getGreen(), textCol.getBlue(), (int)(a*255)));
+                g2.drawString(dmgStr, tx2, ty2);
+            }
+
+            // ── Render Death Effects (kristal ungu pecah) ─────────────────────
+            for (int di = 0; di < deathMeta.size(); di++) {
+                float[] meta   = deathMeta.get(di);
+                float   da     = Math.max(0, meta[2]);
+                float[][] shards = deathEffects.get(di);
+
+                // Glow pusat
+                int gR = (int)(60 * da);
+                if (gR > 0) {
+                    RadialGradientPaint glow = new RadialGradientPaint(
+                        meta[0], meta[1], gR,
+                        new float[]{0f, 1f},
+                        new Color[]{new Color(180,60,255,(int)(da*140)), new Color(100,0,180,0)});
+                    g2.setPaint(glow);
+                    g2.fillOval((int)meta[0]-gR, (int)meta[1]-gR, gR*2, gR*2);
+                }
+
+                // Shard
+                for (float[] s : shards) {
+                    AffineTransform old = g2.getTransform();
+                    g2.translate((int)s[0], (int)s[1]);
+                    g2.rotate(Math.toRadians(s[4]));
+                    int sz = (int)s[6];
+                    int[] px2 = {0, sz/2, sz/2, 0, -sz/2, -sz/2};
+                    int[] py2 = {-sz, -sz/2, sz/2, sz, sz/2, -sz/2};
+                    g2.setColor(new Color(180,60,255,(int)(da*220)));
+                    g2.fillPolygon(px2, py2, 6);
+                    g2.setColor(new Color(80,0,140,(int)(da*180)));
+                    g2.setStroke(new BasicStroke(1f));
+                    g2.drawPolygon(px2, py2, 6);
+                    g2.setColor(new Color(255,255,255,(int)(da*140)));
+                    g2.fillOval(-sz/6, -sz/6, sz/3, sz/3);
+                    g2.setTransform(old);
+                }
+            }
         }
 
-        private void drawBeastSprite(Graphics2D g2, int x, int y, int w, int h,
-                                     Beast b, boolean isPlayer,
-                                     boolean isActive, boolean isTarget) {
-            Color ec = ElementColor.getColor(b.getElement());
+        // ── Tint image (overlay warna pada sprite) ─────────────────────────────
+        private java.awt.image.BufferedImage tintImage(java.awt.image.BufferedImage src, Color tint) {
+            int w = src.getWidth(), h = src.getHeight();
+            java.awt.image.BufferedImage out = new java.awt.image.BufferedImage(w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            Graphics2D g = out.createGraphics();
+            g.drawImage(src, 0, 0, null);
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_ATOP,
+                tint.getAlpha() / 255f));
+            g.setColor(new Color(tint.getRed(), tint.getGreen(), tint.getBlue()));
+            g.fillRect(0, 0, w, h);
+            g.dispose();
+            return out;
+        }
 
+        // ── Draw background map ────────────────────────────────────────────────
+        private void drawMapBackground(Graphics2D g2, int W, int H) {
+            GameMap map  = state.getSelectedMap();
+            String  name = (map != null) ? map.getName() : "Plains";
+            if (cachedBg == null || cachedBgW != W || cachedBgH != H) {
+                cachedBg  = beastclash.resources.ResourceManager.getInstance().getMapBgScaled(name, W, H);
+                cachedBgW = W; cachedBgH = H;
+            }
+            if (cachedBg != null) {
+                g2.drawImage(cachedBg, 0, 0, null);
+                g2.setColor(new Color(0,0,0,55));
+                g2.fillRect(0, 0, W, H);
+            } else {
+                g2.setColor(new Color(14,14,28));
+                g2.fillRect(0, 0, W, H);
+            }
+        }
+
+        // ── Draw sprite beast ──────────────────────────────────────────────────
+        private void drawBeastSprite(Graphics2D g2, int x, int y, int w, int h,
+                Beast b, boolean isPlayer, boolean isActive, boolean isTarget) {
+            Color ec = ElementColor.getColor(b.getElement());
             if (!b.isAlive()) {
-                // Mati: gambar abu-abu transparan
-                g2.setColor(new Color(80, 80, 80, 100));
-                g2.fillOval(x + w/4, y + h/4, w/2, h/2);
-                g2.setColor(new Color(200, 50, 50));
-                g2.setFont(new Font("Segoe UI", Font.BOLD, 13));
-                g2.drawString("✗", x + w/2 - 5, y + h/2 + 5);
-                // Nama
-                g2.setFont(new Font("Segoe UI", Font.PLAIN, 8));
-                g2.setColor(Color.GRAY);
-                String n = truncate(b.getName(), 7);
-                g2.drawString(n, x + (w - g2.getFontMetrics().stringWidth(n)) / 2, y + h + 14);
+                // Beast mati: tampilkan sprite grayscale tanpa lingkaran/silang
+                beastclash.resources.ResourceManager rm2 = beastclash.resources.ResourceManager.getInstance();
+                java.awt.image.BufferedImage deadImg = isPlayer
+                    ? rm2.getBeastForPlayer(b.getName())
+                    : rm2.getBeastForEnemy(b.getName());
+                if (deadImg != null) {
+                    java.awt.image.ColorConvertOp grayOp = new java.awt.image.ColorConvertOp(
+                        java.awt.color.ColorSpace.getInstance(java.awt.color.ColorSpace.CS_GRAY), null);
+                    java.awt.image.BufferedImage grayImg = grayOp.filter(deadImg, null);
+                    // Gambar grayscale dengan opacity 50%
+                    java.awt.AlphaComposite ac = java.awt.AlphaComposite.getInstance(
+                        java.awt.AlphaComposite.SRC_OVER, 0.4f);
+                    java.awt.Composite oldComp = g2.getComposite();
+                    g2.setComposite(ac);
+                    g2.drawImage(grayImg, x, y, w, h, null);
+                    g2.setComposite(oldComp);
+                }
                 return;
             }
-
-            // Glow efek untuk yang sedang giliran
             if (isActive) {
-                g2.setColor(new Color(ec.getRed(), ec.getGreen(), ec.getBlue(), 60));
-                g2.fillOval(x - 6, y - 6, w + 12, h + 12);
+                // Tidak ada efek visual apapun di belakang beast saat aktif
             }
-
-            // Target highlight (kuning)
             if (isTarget && !isPlayer) {
-                g2.setColor(new Color(255, 255, 0, 50));
-                g2.fillOval(x - 4, y - 4, w + 8, h + 8);
-                g2.setColor(Color.YELLOW);
-                g2.setStroke(new BasicStroke(1.5f));
-                g2.drawOval(x - 4, y - 4, w + 8, h + 8);
-                g2.setStroke(new BasicStroke(1));
+                // Tidak ada efek visual apapun di belakang beast target
             }
+            beastclash.resources.ResourceManager rm = beastclash.resources.ResourceManager.getInstance();
+            java.awt.image.BufferedImage rawImg = isPlayer
+                ? rm.getBeastForPlayer(b.getName())
+                : rm.getBeastForEnemy(b.getName());
+            if (rawImg != null) {
+                g2.drawImage(rawImg, x, y, w, h, null);
+            } else {
+                drawProceduralBeast(g2, x, y, w, h, b, isPlayer, ec);
+            }
+        }
 
-            // Sprite beast (warna elemen)
+        private void drawBeastLabel(Graphics2D g2, int cx, int y, Beast b, boolean isEnemy) {
+            String nm = b.getName() + " [" + b.getElement() + "]";
+            g2.setFont(new Font("Segoe UI",Font.BOLD,11));
+            FontMetrics fm = g2.getFontMetrics();
+            int tx = cx - fm.stringWidth(nm)/2;
+            g2.setColor(new Color(0,0,0,160)); g2.drawString(nm,tx+1,y+1);
+            g2.setColor(isEnemy ? new Color(255,160,160) : new Color(160,255,180));
+            g2.drawString(nm,tx,y);
+        }
+
+        private void drawProceduralBeast(Graphics2D g2,int x,int y,int w,int h,Beast b,boolean isPlayer,Color ec) {
             g2.setColor(ec);
             switch (b.getElement()) {
                 case "Api":
-                    g2.fillOval(x + w/4, y + h/3, w/2, h*2/3);
-                    g2.setColor(new Color(255, 200, 50));
-                    g2.fillPolygon(
-                        new int[]{x+w/2, x+w/4, x+w*3/8, x+w/3, x+w*2/3, x+w*5/8, x+w*3/4},
-                        new int[]{y, y+h*2/3, y+h/2, y+h, y+h, y+h/2, y+h*2/3}, 7);
+                    g2.fillOval(x+w/4,y+h/3,w/2,h*2/3);
+                    g2.setColor(new Color(255,200,50));
+                    g2.fillPolygon(new int[]{x+w/2,x+w/4,x+w*3/8,x+w/3,x+w*2/3,x+w*5/8,x+w*3/4},
+                        new int[]{y,y+h*2/3,y+h/2,y+h,y+h,y+h/2,y+h*2/3},7);
                     break;
                 case "Air":
-                    g2.fillOval(x+w/5, y+h/5, w*3/5, h*3/5);
-                    g2.setColor(new Color(150, 220, 255));
-                    g2.fillArc(x+w/8, y+h/2, w*3/4, h/2, 0, 180);
+                    g2.fillOval(x+w/5,y+h/5,w*3/5,h*3/5);
+                    g2.setColor(new Color(150,220,255));
+                    g2.fillArc(x+w/8,y+h/2,w*3/4,h/2,0,180);
                     break;
                 case "Tanah":
-                    g2.fillRoundRect(x+w/8, y+h/4, w*3/4, h*3/4, 10, 10);
+                    g2.fillRoundRect(x+w/8,y+h/4,w*3/4,h*3/4,10,10);
                     g2.setColor(ec.brighter());
-                    g2.fillRoundRect(x+w/4, y, w/2, h/2, 8, 8);
+                    g2.fillRoundRect(x+w/4,y,w/2,h/2,8,8);
                     break;
                 case "Daun":
-                    g2.fillOval(x+w/4, y, w/2, h*2/3);
-                    g2.setColor(new Color(100, 220, 100));
-                    for (int i = 0; i < 3; i++) g2.fillOval(x+i*w/3, y+h/3, w/3, h/3);
+                    g2.fillOval(x+w/4,y,w/2,h*2/3);
+                    g2.setColor(new Color(100,220,100));
+                    for (int i=0;i<3;i++) g2.fillOval(x+i*w/3,y+h/3,w/3,h/3);
                     break;
                 case "Cahaya":
-                    drawStar(g2, x+w/2, y+h/2, w/2, h/2, 6);
-                    g2.setColor(new Color(255, 255, 200, 120));
-                    g2.fillOval(x+w/4, y+h/4, w/2, h/2);
+                    drawStar(g2,x+w/2,y+h/2,w/2,h/2,6);
+                    g2.setColor(new Color(255,255,200,120));
+                    g2.fillOval(x+w/4,y+h/4,w/2,h/2);
                     break;
                 case "Gelap":
-                    g2.fillOval(x+w/6, y+h/6, w*2/3, h*2/3);
-                    g2.setColor(new Color(40, 0, 80));
-                    g2.fillOval(x+w/3, y+h/3, w/3, h/3);
-                    g2.setColor(new Color(180, 0, 255, 100));
+                    g2.fillOval(x+w/6,y+h/6,w*2/3,h*2/3);
+                    g2.setColor(new Color(40,0,80));
+                    g2.fillOval(x+w/3,y+h/3,w/3,h/3);
+                    g2.setColor(new Color(180,0,255,100));
                     g2.setStroke(new BasicStroke(1.5f));
-                    g2.drawOval(x+w/6, y+h/6, w*2/3, h*2/3);
+                    g2.drawOval(x+w/6,y+h/6,w*2/3,h*2/3);
                     g2.setStroke(new BasicStroke(1));
                     break;
                 default:
-                    g2.fillOval(x+w/4, y+h/4, w/2, h/2);
-            }
-
-            // Mata
-            int eyeY = y + h * 2 / 5;
-            if (isPlayer) {
-                g2.setColor(Color.WHITE);
-                g2.fillOval(x+w/3, eyeY, w/7, w/7);
-                g2.fillOval(x+w/2, eyeY, w/7, w/7);
-                g2.setColor(Color.BLACK);
-                g2.fillOval(x+w/3+2, eyeY+2, w/10, w/10);
-                g2.fillOval(x+w/2+2, eyeY+2, w/10, w/10);
-            } else {
-                g2.setColor(Color.WHITE);
-                g2.fillOval(x+w/3, eyeY, w/7, w/7);
-                g2.fillOval(x+w/2, eyeY, w/7, w/7);
-                g2.setColor(Color.RED);
-                g2.fillOval(x+w/3+2, eyeY+2, w/10, w/10);
-                g2.fillOval(x+w/2+2, eyeY+2, w/10, w/10);
-            }
-
-            // Beku overlay
-            if (isPlayer && playerFrozen) {
-                g2.setColor(new Color(100, 200, 255, 90));
-                g2.fillRoundRect(x, y, w, h, 8, 8);
-                g2.setColor(new Color(150, 220, 255));
-                g2.setStroke(new BasicStroke(2));
-                g2.drawRoundRect(x, y, w, h, 8, 8);
-                g2.setStroke(new BasicStroke(1));
-            }
-
-            // Nama
-            g2.setFont(new Font("Segoe UI", isActive ? Font.BOLD : Font.PLAIN, 8));
-            g2.setColor(isActive ? Color.YELLOW : Color.WHITE);
-            String nm = truncate(b.getName(), 7);
-            FontMetrics fm = g2.getFontMetrics();
-            g2.drawString(nm, x + (w - fm.stringWidth(nm)) / 2, y + h + 14);
-
-            // Indikator giliran
-            if (isActive) {
-                g2.setColor(Color.YELLOW);
-                g2.fillPolygon(
-                    new int[]{x+w/2-4, x+w/2+4, x+w/2},
-                    new int[]{y-10, y-10, y-4}, 3);
+                    g2.fillOval(x+w/4,y+h/4,w/2,h/2);
             }
         }
 
-        private void drawStar(Graphics2D g2, int cx, int cy, int rx, int ry, int pts) {
-            int[] xs = new int[pts*2], ys = new int[pts*2];
-            for (int i = 0; i < pts*2; i++) {
-                double a = Math.PI / pts * i - Math.PI / 2;
-                double r = (i%2==0) ? rx : rx/2.2;
-                xs[i] = cx + (int)(r * Math.cos(a));
-                ys[i] = cy + (int)(ry * Math.sin(a));
-            }
-            g2.fillPolygon(xs, ys, pts*2);
-        }
-
-        private void drawMiniBar(Graphics2D g2, int x, int y, int w, int h,
-                                  int cur, int max, Color color) {
-            g2.setColor(new Color(30, 30, 30));
-            g2.fillRoundRect(x, y, w, h, 3, 3);
-            if (max > 0 && cur > 0) {
-                int fw = (int)((double)cur / max * w);
-                g2.setColor(color);
-                g2.fillRoundRect(x, y, fw, h, 3, 3);
+        private void drawMiniBar(Graphics2D g2,int x,int y,int w,int h,int cur,int max,Color c) {
+            g2.setColor(new Color(0,0,0,120));
+            g2.fillRoundRect(x,y,w,h,3,3);
+            if (max>0) {
+                float ratio = Math.max(0,Math.min(1,(float)cur/max));
+                g2.setColor(c);
+                g2.fillRoundRect(x,y,(int)(w*ratio),h,3,3);
             }
         }
 
-        private void drawBackground(Graphics2D g2, int w, int h) {
-            GameMap map = state.getSelectedMap();
-            String nm = map != null ? map.getName() : "";
-            switch (nm) {
-                case "Desert":
-                    g2.setPaint(new GradientPaint(0,0,new Color(255,155,50),0,h*0.6f,new Color(235,195,70)));
-                    g2.fillRect(0,0,w,(int)(h*0.65));
-                    g2.setColor(new Color(215,175,90));
-                    g2.fillRect(0,(int)(h*0.65),w,h);
-                    g2.setColor(new Color(195,150,65));
-                    g2.fillArc(-20,(int)(h*0.52),180,80,0,180);
-                    g2.fillArc(w-130,(int)(h*0.58),170,60,0,180);
-                    break;
-                case "Volcano":
-                    g2.setPaint(new GradientPaint(0,0,new Color(50,8,8),0,h*0.6f,new Color(110,25,8)));
-                    g2.fillRect(0,0,w,(int)(h*0.72));
-                    g2.setColor(new Color(190,55,0));
-                    g2.fillRect(0,(int)(h*0.72),w,h);
-                    g2.setColor(new Color(250,115,0));
-                    for (int x=0;x<w;x+=28) g2.fillArc(x-8,(int)(h*0.70),36,18,0,180);
-                    break;
-                case "Blizzard":
-                    g2.setPaint(new GradientPaint(0,0,new Color(170,205,238),0,h*0.6f,new Color(225,238,255)));
-                    g2.fillRect(0,0,w,(int)(h*0.72));
-                    g2.setColor(new Color(215,232,252));
-                    g2.fillRect(0,(int)(h*0.72),w,h);
-                    g2.setColor(new Color(255,255,255,180));
-                    long t = System.currentTimeMillis()/70;
-                    for (int i=0;i<24;i++) {
-                        int sx=(int)((i*61+t*2)%w), sy=(int)((i*37+t*4)%h);
-                        g2.fillOval(sx,sy,4,4);
-                    }
-                    break;
-                case "Lautan Biru":
-                    g2.setPaint(new GradientPaint(0,0,new Color(20,80,160),0,h*0.6f,new Color(30,120,200)));
-                    g2.fillRect(0,0,w,(int)(h*0.65));
-                    g2.setColor(new Color(10,60,140));
-                    g2.fillRect(0,(int)(h*0.65),w,h);
-                    g2.setColor(new Color(80,180,255,100));
-                    long tw = System.currentTimeMillis()/120;
-                    for (int i=0;i<5;i++) g2.fillArc((int)((i*80+tw*3)%w),(int)(h*0.60),60,20,0,180);
-                    break;
-                case "Hutan Hijau":
-                    g2.setPaint(new GradientPaint(0,0,new Color(30,80,30),0,h*0.5f,new Color(50,130,50)));
-                    g2.fillRect(0,0,w,(int)(h*0.65));
-                    g2.setColor(new Color(30,100,30));
-                    g2.fillRect(0,(int)(h*0.65),w,h);
-                    g2.setColor(new Color(20,70,20,180));
-                    for (int i=0;i<5;i++) g2.fillOval(i*w/5-10,(int)(h*0.4),50,80);
-                    break;
-                case "Hutan Gelap":
-                    g2.setPaint(new GradientPaint(0,0,new Color(5,0,15),0,h*0.6f,new Color(15,5,30)));
-                    g2.fillRect(0,0,w,(int)(h*0.7));
-                    g2.setColor(new Color(10,5,25));
-                    g2.fillRect(0,(int)(h*0.7),w,h);
-                    g2.setColor(new Color(80,0,160,80));
-                    for (int i=0;i<8;i++) g2.fillOval((i*43)%w,(i*29)%(int)(h*0.5),8,8);
-                    break;
-                default:
-                    g2.setColor(new Color(14,14,28));
-                    g2.fillRect(0,0,w,h);
-                    g2.setColor(new Color(35,35,60));
-                    g2.fillRect(0,h*3/4,w,h/4);
+        private void drawStar(Graphics2D g2,int cx,int cy,int rx,int ry,int pts) {
+            int[] xs=new int[pts*2],ys=new int[pts*2];
+            for (int i=0;i<pts*2;i++) {
+                double angle=Math.PI/pts*i-Math.PI/2;
+                int r=(i%2==0)?Math.max(rx,ry):Math.min(rx,ry)/2;
+                xs[i]=cx+(int)(r*Math.cos(angle));
+                ys[i]=cy+(int)(r*Math.sin(angle));
             }
+            g2.fillPolygon(xs,ys,pts*2);
         }
     }
 

@@ -40,12 +40,54 @@ public class GameState {
     }
 
     // ── Auth ──────────────────────────────────────────────────────────────────
+    // Telur in-memory untuk mode offline
+    private int offlineEggs = 0;
+    // Beast yang di-unlock lewat gacha offline (sesi ini saja)
+    private List<Integer> offlineOwnedIds = null;
+
     public int getCurrentUserId() { return currentUserId; }
 
     public void setCurrentUserId(int uid) {
         this.currentUserId = uid;
-        // Reset cache saat user berganti
         this.cachedOwnedBeastIds = null;
+        this.offlineEggs = 0;
+        this.offlineOwnedIds = null; // reset saat ganti user/session
+    }
+
+    /** Tambah beast ID ke daftar milik offline (dipanggil oleh GachaSystem). */
+    public void addOfflineOwnedBeast(int beastId) {
+        if (offlineOwnedIds == null) {
+            offlineOwnedIds = new ArrayList<>(BeastData.getStarterIds());
+        }
+        if (!offlineOwnedIds.contains(beastId)) {
+            offlineOwnedIds.add(beastId);
+        }
+    }
+
+    /** Kembalikan list ID beast yang dimiliki di mode offline (starter + hasil gacha). */
+    public List<Integer> getOfflineOwnedIds() {
+        if (offlineOwnedIds == null) {
+            offlineOwnedIds = new ArrayList<>(BeastData.getStarterIds());
+        }
+        return offlineOwnedIds;
+    }
+
+    // ── Egg management ────────────────────────────────────────────────────────
+    public void addEggReward(int amount) {
+        if (currentUserId > 0 && DatabaseManager.getInstance().isConnected()) {
+            DatabaseManager.getInstance().addEggs(currentUserId, amount);
+        } else {
+            // Mode offline: simpan di memori
+            offlineEggs += amount;
+        }
+    }
+
+    public int getOfflineEggs() { return offlineEggs; }
+
+    public boolean spendOfflineEgg() {
+        if (offlineEggs <= 0) return false;
+        offlineEggs--;
+        return true;
     }
 
     // ── Invalidate cache (dipanggil setelah gacha unlock beast baru) ──────────
@@ -90,12 +132,6 @@ public class GameState {
         }
     }
 
-    /** Tambah telur ke user setelah menang. */
-    public void addEggReward(int amount) {
-        if (currentUserId <= 0) return;
-        DatabaseManager.getInstance().addEggs(currentUserId, amount);
-    }
-
     // ── Beast ─────────────────────────────────────────────────────────────────
     /**
      * Return list beast yang boleh dipilih oleh user (owned).
@@ -107,15 +143,14 @@ public class GameState {
         List<Integer> owned;
 
         if (currentUserId > 0 && DatabaseManager.getInstance().isConnected()) {
-            // Gunakan cache jika ada; jika tidak, query DB dan simpan cache
+            // Online: query DB
             if (cachedOwnedBeastIds == null) {
                 cachedOwnedBeastIds = DatabaseManager.getInstance().getOwnedBeastIds(currentUserId);
             }
             owned = cachedOwnedBeastIds;
         } else {
-            // Offline: semua beast tersedia
-            owned = new ArrayList<>();
-            for (Beast b : all) owned.add(b.getId());
+            // Offline: starter + beast yang sudah di-unlock lewat gacha sesi ini
+            owned = getOfflineOwnedIds();
         }
 
         List<Beast> available = new ArrayList<>();
