@@ -145,21 +145,13 @@ public class MainMenuPanel extends JPanel implements MainFrame.Cleanable {
             "║       BEAST CLASH                                                           ║\n" +
             "║       Tim Pengembang                                                    ║\n" +
             "╠══════════════════════════════╣\n" +
-<<<<<<< HEAD
             "║  • Agung Wahyu Niti Wijaya                                        ║\n" +
             "║  • Raga Deva Bela Negara                                             ║\n" +
             "║  • Ahmad Dziqro Attayu Setio Damar                         ║\n" +
             "║  • Nova Salwa Safitri                                                      ║\n" +
             "║  • Septi Lailatul Fitria                                                     ║\n" +
-=======
-            "║  • Agung Wahyu Niti Wijaya               ║\n" +
-            "║  • Raga Deva Bela Negara              ║\n" +
-            "║  • Ahmad Dziqro Attayu Setio Damar                ║\n" +
-            "║  • Nova Salwa Safitri              ║\n" +
-            "║  • Septi Lailatul Fitria              ║\n" +
->>>>>>> 236f08496782095adbaaca05a1c391f985184c31
             "╠══════════════════════════════╣\n" +
-            "║  © 2026 Beast Clash Team                                            ║\n" +
+            "║  © 2025 Beast Clash Team                                            ║\n" +
             "╚══════════════════════════════╝";
 	JOptionPane.showMessageDialog(this, credits, "Credits", JOptionPane.INFORMATION_MESSAGE);
     }

@@ -119,6 +119,18 @@ public class BattleController {
         advanceToNextTurn();
     }
 
+    /**
+     * Skip giliran beast yang sedang aktif (digunakan untuk efek Freeze).
+     * Memanggil endTurn() pada beast yang sedang giliran agar action value-nya
+     * dikurangi dan antrian maju — tanpa melakukan aksi apapun.
+     * Berlaku untuk beast player maupun enemy.
+     */
+    public void skipCurrentTurn() {
+        TurnEntry actor = getCurrentTurn();
+        if (actor == null) return;
+        endTurn(actor);
+    }
+
     // ── AKSI PLAYER ──────────────────────────────────────────────────────────
 
     /**
@@ -230,7 +242,7 @@ public class BattleController {
         return bru;
     }
 
-    /** Kabur: 50% berhasil */
+    /** Kabur: 50% berhasil. Jika gagal, giliran tetap milik player. */
     public BattleResult performRun() {
         StringBuilder log = new StringBuilder();
         if (rng.nextDouble() < 0.5) {
@@ -238,8 +250,8 @@ public class BattleController {
             log.append("[RUN_SUCCESS] Berhasil kabur dari pertarungan!\n");
             return new BattleResult(log.toString(), false, false, false);
         }
-        log.append("Gagal kabur! Musuh memblokir jalan!\n");
-        // Tidak endTurn – giliran tetap milik player (bisa coba lagi / pilih aksi lain)
+        log.append("[RUN_FAIL] Gagal kabur! Musuh memblokir jalan!\n");
+        // Tidak endTurn – giliran tetap milik player
         return new BattleResult(log.toString(), false, false, false);
     }
 

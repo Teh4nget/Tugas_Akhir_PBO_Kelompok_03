@@ -58,6 +58,7 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
     private boolean playerFrozen  = false;
     private Timer   freezeTimer;
     private int     attackCounter = 0;
+    private boolean runLocked     = false; // tombol RUN dikunci setelah gagal kabur
 
     private boolean battleEnded = false;
     private boolean enemyTurnPending = false; // mencegah klik ganda saat enemy turn
@@ -175,9 +176,8 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
             + "Damage = (ATK × 2) − DEF/3<br>"
             + "Damage tertinggi dari semua aksi.</html>");
         btnRun.setToolTipText("<html><b>RUN</b><br>"
-            + "Coba kabur dari pertarungan.<br>"
-            + "Peluang berhasil: <b>50%</b><br>"
-            + "Jika gagal, giliran tetap berlanjut.</html>");
+            + "Kabur dari pertarungan.<br>"
+            + "Akan muncul konfirmasi sebelum lari.</html>");
 
         btnAttack  .addActionListener(e -> onPlayerAction("attack"));
         btnSkill   .addActionListener(e -> onPlayerAction("skill"));
@@ -396,6 +396,18 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
 
         BattleController.BattleResult result;
         if (action.equals("run")) {
+            // Dialog konfirmasi sebelum lari
+            int confirm = JOptionPane.showConfirmDialog(
+                this,
+                "<html><b>Yakin ingin kabur dari pertarungan?</b><br>"
+                    + "Progress battle akan hilang."
+			+ "Peluang Berhasil Adalah 50%</html>",
+		
+                "Kabur dari Pertarungan",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+            );
+            if (confirm != JOptionPane.YES_OPTION) return;
             result = battle.performRun();
         } else {
             // Attack, Skill, Ultimate — semuanya butuh target
@@ -431,6 +443,17 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
             stopMapTimers();
             setActionsEnabled(false);
             new Timer(1000, e -> frame.showMapSelect()) {{ setRepeats(false); start(); }};
+            return;
+        }
+
+        if (result.log.contains("[RUN_FAIL]")) {
+            runLocked = true;
+            btnRun.setEnabled(false);
+            btnRun.setToolTipText("<html><b>RUN</b><br>"
+                + "<font color='red'>Gagal kabur! Tombol dikunci untuk giliran ini.</font></html>");
+            checkBlizzardFreeze();
+            refreshAll();
+            // Giliran tetap milik player, tidak perlu scheduleNextTurn
             return;
         }
 
@@ -477,13 +500,41 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
 
             // Setelah enemy selesai, cek apakah masih ada enemy berturut-turut
             scheduleNextTurn();
-            if (!enemyTurnPending) setActionsEnabled(true);
+            if (!enemyTurnPending) {
+                runLocked = false;
+                btnRun.setToolTipText("<html><b>RUN</b><br>"
+                    + "Kabur dari pertarungan.<br>"
+                    + "Akan muncul konfirmasi sebelum lari.</html>");
+                setActionsEnabled(true);
+            }
         }) {{ setRepeats(false); start(); }};
     }
 
     private void checkIfEnemyTurn() {
         TurnEntry cur = battle.getCurrentTurn();
         if (cur != null && cur.isEnemy) scheduleNextTurn();
+    }
+
+    /**
+     * Setelah freeze selesai: jika giliran berikutnya enemy, jalankan otomatis.
+     * Jika giliran berikutnya player, aktifkan tombol aksi agar player bisa bermain.
+     * Ini berbeda dari scheduleNextTurn() yang langsung return (tanpa enable tombol)
+     * ketika giliran adalah milik player.
+     */
+    private void scheduleNextTurnOrEnablePlayer() {
+        TurnEntry next = battle.getCurrentTurn();
+        if (next == null) return;
+        if (next.isEnemy) {
+            scheduleNextTurn();
+        } else {
+            // Giliran player berikutnya — reset runLocked dan aktifkan tombol
+            runLocked = false;
+            btnRun.setToolTipText("<html><b>RUN</b><br>"
+                + "Kabur dari pertarungan.<br>"
+                + "Akan muncul konfirmasi sebelum lari.</html>");
+            setActionsEnabled(true);
+            refreshAll();
+        }
     }
 
     // =========================================================================
@@ -629,32 +680,59 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
         if (attackCounter % 5 != 0) return;
 
         TurnEntry cur = battle.getCurrentTurn();
-        if (cur == null || cur.isEnemy || playerFrozen) return;
+        if (cur == null) return;
 
         Beast b = cur.beast;
+        boolean isEnemyBeast = cur.isEnemy;
+
+        // Jangan bekukan beast yang sudah ditandai beku (cegah double-freeze)
+        if (!isEnemyBeast && playerFrozen) return;
+
         // Cahaya kebal beku (bonus Blizzard), Air mudah beku (40%), lain 25%
         int chance = b.getElement().equals("Cahaya") ? 0
                    : b.getElement().equals("Air")    ? 40 : 25;
         if (rng.nextInt(100) >= chance) return;
 
-        // Beast terkena beku
-        playerFrozen = true;
-        setActionsEnabled(false);
+        // ── Beast terkena beku ──────────────────────────────────────────────
         addLog(b.getName() + " DIBEKUKAN selama 1 giliran!\n");
         mapEffectLabel.setText(b.getName() + " BEKU!");
         mapEffectLabel.setForeground(new Color(100, 200, 255));
 
-        // Skip giliran player ini — langsung ke giliran berikutnya setelah delay singkat
-        new Timer(1200, ev -> {
-            ((Timer) ev.getSource()).stop();
-            if (battleEnded) return;
-            playerFrozen = false;
-            mapEffectLabel.setText(getMapEffectText());
-            mapEffectLabel.setForeground(new Color(200, 180, 120));
-            addLog(b.getName() + " bebas dari beku.\n");
-            // Paksa lanjut ke giliran berikutnya
-            scheduleNextTurn();
-        }) {{ setRepeats(false); start(); }};
+        // Konsumsi giliran beast yang beku agar antrian turn benar-benar maju.
+        // Tanpa ini, actionValue beast tidak pernah dikurangi sehingga getCurrentTurn()
+        // selalu mengembalikan beast yang sama dan pertarungan stuck.
+        battle.skipCurrentTurn();
+
+        if (!isEnemyBeast) {
+            // Beast player beku: nonaktifkan tombol, set flag, lalu lanjut setelah delay
+            playerFrozen = true;
+            setActionsEnabled(false);
+            refreshAll();
+
+            new Timer(1200, ev -> {
+                ((Timer) ev.getSource()).stop();
+                if (battleEnded) return;
+                playerFrozen = false;
+                mapEffectLabel.setText(getMapEffectText());
+                mapEffectLabel.setForeground(new Color(200, 180, 120));
+                addLog(b.getName() + " bebas dari beku.\n");
+                // Lanjut ke giliran berikutnya — bisa enemy atau player lain
+                scheduleNextTurnOrEnablePlayer();
+            }) {{ setRepeats(false); start(); }};
+
+        } else {
+            // Beast enemy beku: turn sudah di-skip, lanjut langsung ke giliran berikutnya
+            refreshAll();
+            new Timer(800, ev -> {
+                ((Timer) ev.getSource()).stop();
+                if (battleEnded) return;
+                mapEffectLabel.setText(getMapEffectText());
+                mapEffectLabel.setForeground(new Color(200, 180, 120));
+                addLog(b.getName() + " bebas dari beku.\n");
+                // Cek apakah giliran berikutnya masih enemy atau sudah player
+                scheduleNextTurnOrEnablePlayer();
+            }) {{ setRepeats(false); start(); }};
+        }
     }
 
     private String getMapEffectText() {
@@ -800,7 +878,7 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
         btnAttack  .setEnabled(en);
         btnSkill   .setEnabled(en);
         btnUltimate.setEnabled(en);
-        btnRun     .setEnabled(en);
+        btnRun     .setEnabled(en && !runLocked);
     }
 
     // =========================================================================
