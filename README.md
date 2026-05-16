@@ -1,845 +1,901 @@
-# 🐉 Beast Clash — Dokumentasi Struktur Game Lengkap
+# 🐉 Beast Clash — Dokumentasi Lengkap Proyek
 
-> Dokumen ini menjelaskan arsitektur kode, struktur file, distribusi baris kode, fungsi tiap file, serta bagian-bagian penting yang menjalankan game Beast Clash secara menyeluruh.
+> *"Di dunia Arcana, kekuatan sejati bukan dari seberapa keras kamu menyerang — melainkan dari seberapa jauh kamu bersedia berjalan demi melindungi yang kamu sayangi."*
 
 ---
 
-## 📊 Ringkasan Statistik Proyek
+## 📋 Daftar Isi
 
-| Kategori | Jumlah |
+1. [Tentang Game](#tentang-game)
+2. [Tim Pengembang](#tim-pengembang)
+3. [Persyaratan Sistem](#persyaratan-sistem)
+4. [Cara Setup](#cara-setup)
+5. [Struktur Proyek](#struktur-proyek)
+6. [Ringkasan File & Statistik Kode](#ringkasan-file--statistik-kode)
+7. [Penjelasan Detail Setiap File](#penjelasan-detail-setiap-file)
+8. [Arsitektur & Alur Sistem](#arsitektur--alur-sistem)
+9. [Lore & Cerita Beast Clash](#lore--cerita-beast-clash)
+10. [Sistem Ending](#sistem-ending)
+11. [Slogan](#slogan)
+
+---
+
+## Tentang Game
+
+**Beast Clash** adalah game RPG turn-based berbasis Java Swing yang terinspirasi dari sistem pertarungan bergaya *Honkai: Star Rail (HSR)*. Pemain berperan sebagai seorang **Pelatih Beast** yang bertugas melindungi dunia **Arcana** dari ancaman kehancuran oleh entitas bernama **Zenith**.
+
+Game ini dibangun sepenuhnya dengan **Java (Swing)** dan menggunakan **MySQL (XAMPP)** sebagai database untuk sistem autentikasi, progres permainan, dan kepemilikan Beast. Seluruh audio di-*generate* secara prosedural tanpa file eksternal.
+
+**Fitur Utama:**
+- Sistem battle turn-based berbasis kecepatan (HSR-style action queue)
+- 24 Beast unik dengan 6 elemen yang saling berinteraksi
+- 6 map dunia dengan efek lingkungan yang memengaruhi battle
+- Sistem Gacha dengan pity ke-10 dan rarity Cahaya/Gelap
+- Autentikasi pengguna (register/login) dengan hashing SHA-256
+- Mode offline (tanpa database) dengan progress in-memory
+- Musik & SFX prosedural (PCM synthesis, tanpa file .wav/.mp3)
+- Animasi cerita pembuka (prolog 6 halaman) dan layar ending
+
+---
+
+## Tim Pengembang
+
+| Peran | Nama |
 |---|---|
-| **Total file Java** | 22 file |
-| **Total baris kode** | 6.603 baris |
-| **Gambar Beast** | 24 file PNG (1080×1080) |
-| **Gambar Map** | 6 file PNG |
-| **Package** | 7 package |
-| **Library eksternal** | 1 (MySQL Connector/J 9.5.0) |
+| 🎮 Game Designer & Lead Developer | **Agung Wahyu Niti Wijaya** |
+| 💻 Backend & Database Engineer | **Nova Salwa Safitri & Septi Lailatul Fitria** |
+| 🎨 UI/UX & View Developer | **Ahmad Dziqro Attayu Setio Damar** |
+| 🔊 Audio & Visual Effects | **Raga Deva Bela Negara** |
+
+> Proyek ini dikembangkan sebagai karya akademis di lingkungan pengembangan NetBeans IDE dengan target JDK 11+ dan MySQL 8.x melalui XAMPP.
 
 ---
 
-## 🗂️ Peta Struktur Lengkap Proyek
+## Persyaratan Sistem
+
+| Komponen | Versi |
+|---|---|
+| **NetBeans IDE** | 21 ke atas (termasuk 29) |
+| **JDK** | 11 – 26 (dikompilasi dengan `--release 11`) |
+| **XAMPP** | 8.x (MySQL 8.x) |
+| **MySQL Connector/J** | 9.x (letakkan di folder `lib/`) |
+
+---
+
+## Cara Setup
+
+### 1. Siapkan Driver MySQL
+
+```
+lib/mysql-connector-j-9.x.x.jar
+```
+
+Sudah ada di folder lib, Jika belum ada bisa download dari https://dev.mysql.com/downloads/connector/j/ lalu letakkan di folder `lib/`. 
+
+### 2. Siapkan Database
+
+1. Jalankan **XAMPP** → Start **Apache** & **MySQL**
+2. Buka **phpMyAdmin** → Buat database baru bernama **`beastclash`** (kosong)
+3. Tabel dibuat otomatis oleh program saat pertama dijalankan:
+   - `users` — data akun pengguna
+   - `map_progress` — progres tiap map per user
+   - `beast_owned` — daftar Beast yang dimiliki per user
+
+### 3. Buka di NetBeans
+
+```
+File → Open Project → pilih folder BeastClash
+Klik kanan project → Properties → Libraries
+Pastikan lib/mysql-connector-j-9.x.x.jar terdaftar
+Tekan F6 untuk menjalankan
+```
+
+### 4. Mode Offline (Tanpa Database)
+
+Jika MySQL tidak aktif, game otomatis masuk **mode offline**: Beast starter tersedia, gacha menggunakan telur in-memory, dan progres tidak disimpan antar sesi.
+
+---
+
+## Struktur Proyek
 
 ```
 BeastClash/
-├── src/beastclash/
-│   ├── Main.java                           (18 baris)  — Entry point
-│   │
-│   ├── audio/
-│   │   └── SoundManager.java              (503 baris)  — PCM synthesis audio engine
-│   │
-│   ├── controller/
-│   │   ├── BattleController.java          (342 baris)  — Turn-based battle engine
-│   │   └── GameState.java                 (214 baris)  — Singleton state global
-│   │
-│   ├── data/
-│   │   ├── BeastData.java                 (113 baris)  — Katalog 24 Beast
-│   │   └── MapData.java                   (32 baris)   — Daftar 6 Map
-│   │
-│   ├── database/
-│   │   └── DatabaseManager.java           (336 baris)  — Koneksi MySQL & query
-│   │
-│   ├── gacha/
-│   │   └── GachaSystem.java               (142 baris)  — Sistem gacha + pity
-│   │
-│   ├── model/
-│   │   ├── Beast.java                     (152 baris)  — Entity Beast + combat logic
-│   │   └── GameMap.java                   (57 baris)   — Entity Map + progress
-│   │
-│   ├── resources/
-│   │   ├── ResourceManager.java           (112 baris)  — Load & cache aset gambar
-│   │   ├── beast/                         (24 PNG)     — Sprite 24 Beast
-│   │   └── map/                           (6 PNG)      — Background 6 Map
-│   │
-│   └── view/
-│       ├── MainFrame.java                 (135 baris)  — Window utama & navigasi
-│       ├── LoginPanel.java                (448 baris)  — Layar login / register
-│       ├── StoryIntroPanel.java           (599 baris)  — Prolog animasi Zenith
-│       ├── MainMenuPanel.java             (267 baris)  — Menu utama
-│       ├── MapSelectPanel.java            (313 baris)  — Pilih map & level
-│       ├── BeastSelectPanel.java          (586 baris)  — Pilih 5 Beast (tim)
-│       ├── BattlePanel.java              (1381 baris)  — Arena battle lengkap
-│       ├── GachaPanel.java                (476 baris)  — Sistem gacha visual
-│       ├── EndingPanel.java               (259 baris)  — Layar ending
-│       ├── HPBar.java                     (72 baris)   — Komponen HP/MP bar
-│       └── ElementColor.java              (46 baris)   — Mapping warna elemen
+├── src/
+│   └── beastclash/
+│       ├── Main.java                        ← Entry point aplikasi
+│       ├── audio/
+│       │   └── SoundManager.java            ← Manajer BGM & SFX prosedural
+│       ├── controller/
+│       │   ├── BattleController.java        ← Engine pertarungan turn-based
+│       │   └── GameState.java               ← Singleton state game global
+│       ├── data/
+│       │   ├── BeastData.java               ← Katalog 24 Beast + enemy generator
+│       │   └── MapData.java                 ← Daftar 6 map dunia
+│       ├── database/
+│       │   └── DatabaseManager.java         ← Koneksi MySQL, CRUD user/beast/map
+│       ├── gacha/
+│       │   └── GachaSystem.java             ← Sistem gacha berbobot + pity
+│       ├── model/
+│       │   ├── Beast.java                   ← Entitas Beast (stats, damage, elemen)
+│       │   └── GameMap.java                 ← Entitas map (nama, elemen, progres)
+│       ├── resources/
+│       │   └── ResourceManager.java         ← Load & cache gambar Beast/map
+│       └── view/
+│           ├── MainFrame.java               ← Window utama + navigasi layar
+│           ├── LoginPanel.java              ← Layar login & register
+│           ├── StoryIntroPanel.java         ← Prolog cerita animasi (6 halaman)
+│           ├── MainMenuPanel.java           ← Menu utama game
+│           ├── MapSelectPanel.java          ← Pilih map & level
+│           ├── BeastSelectPanel.java        ← Pilih tim Beast (maks. 3)
+│           ├── BattlePanel.java             ← Arena pertarungan utama
+│           ├── GachaPanel.java              ← Sistem gacha Beast baru
+│           ├── EndingPanel.java             ← Layar ending + animasi
+│           ├── HPBar.java                   ← Komponen visual HP/MP bar
+│           └── ElementColor.java            ← Utilitas warna per elemen
+│
+├── build/
+│   └── classes/beastclash/
+│       ├── resources/
+│       │   ├── beast/      ← 24 gambar Beast (.png)
+│       │   └── map/        ← 6 gambar map (.png)
+│       └── [*.class]       ← Bytecode hasil kompilasi
+│
+├── dist/
+│   ├── BeastClash.jar      ← JAR siap distribusi
+│   └── lib/
+│       └── mysql-connector-j-9.5.0.jar
 │
 ├── lib/
-│   └── mysql-connector-j-9.5.0.jar       — Driver MySQL
+│   └── mysql-connector-j-9.5.0.jar
 │
-└── dist/
-    └── BeastClash.jar                     — Distribusi executable
+├── nbproject/              ← Konfigurasi NetBeans
+├── build.xml               ← Ant build script
+├── manifest.mf             ← Manifest JAR
+└── README.md               ← Panduan setup
 ```
 
 ---
 
-## 📈 Distribusi Baris Kode per File
+## Ringkasan File & Statistik Kode
+
+### Total File Sumber Java
+
+| # | File | Package | Baris Kode |
+|---|---|---|---|
+| 1 | `Main.java` | `beastclash` | 18 |
+| 2 | `SoundManager.java` | `audio` | 503 |
+| 3 | `BattleController.java` | `controller` | 354 |
+| 4 | `GameState.java` | `controller` | 214 |
+| 5 | `BeastData.java` | `data` | 113 |
+| 6 | `MapData.java` | `data` | 32 |
+| 7 | `DatabaseManager.java` | `database` | 336 |
+| 8 | `GachaSystem.java` | `gacha` | 142 |
+| 9 | `Beast.java` | `model` | 152 |
+| 10 | `GameMap.java` | `model` | 57 |
+| 11 | `ResourceManager.java` | `resources` | 112 |
+| 12 | `MainFrame.java` | `view` | 135 |
+| 13 | `LoginPanel.java` | `view` | 448 |
+| 14 | `StoryIntroPanel.java` | `view` | 599 |
+| 15 | `MainMenuPanel.java` | `view` | 267 |
+| 16 | `MapSelectPanel.java` | `view` | 313 |
+| 17 | `BeastSelectPanel.java` | `view` | 586 |
+| 18 | `BattlePanel.java` | `view` | **1.459** |
+| 19 | `GachaPanel.java` | `view` | 476 |
+| 20 | `EndingPanel.java` | `view` | 259 |
+| 21 | `HPBar.java` | `view` | 72 |
+| 22 | `ElementColor.java` | `view` | 46 |
+| | **TOTAL** | | **~6.693 baris** |
+
+### Aset Gambar
+
+| Kategori | Jumlah File | Format |
+|---|---|---|
+| Gambar Beast | 24 file | `.png` |
+| Gambar Map | 6 file | `.png` |
+| **Total** | **30 file** | |
+
+### Distribusi Kode per Package
 
 ```
-BattlePanel.java        ████████████████████████████████████  1381 baris  (20.9%)
-StoryIntroPanel.java    ██████████████████                      599 baris   (9.1%)
-BeastSelectPanel.java   ██████████████████                      586 baris   (8.9%)
-SoundManager.java       ███████████████                         503 baris   (7.6%)
-GachaPanel.java         ██████████████                          476 baris   (7.2%)
-LoginPanel.java         █████████████                           448 baris   (6.8%)
-BattleController.java   ██████████                              342 baris   (5.2%)
-DatabaseManager.java    ██████████                              336 baris   (5.1%)
-MapSelectPanel.java     █████████                               313 baris   (4.7%)
-MainMenuPanel.java       ████████                               267 baris   (4.0%)
-EndingPanel.java         ████████                               259 baris   (3.9%)
-GameState.java           ██████                                 214 baris   (3.2%)
-Beast.java               █████                                  152 baris   (2.3%)
-GachaSystem.java         ████                                   142 baris   (2.1%)
-MainFrame.java           ████                                   135 baris   (2.0%)
-BeastData.java           ███                                    113 baris   (1.7%)
-ResourceManager.java     ███                                    112 baris   (1.7%)
-HPBar.java               ██                                      72 baris   (1.1%)
-GameMap.java             ██                                      57 baris   (0.9%)
-ElementColor.java        █                                       46 baris   (0.7%)
-MapData.java             █                                       32 baris   (0.5%)
-Main.java                                                        18 baris   (0.3%)
+view/         ~4.660 baris  (69.6%) — UI & rendering
+controller/   ~  568 baris  ( 8.5%) — logika game
+audio/        ~  503 baris  ( 7.5%) — audio prosedural
+database/     ~  336 baris  ( 5.0%) — database layer
+data/         ~  145 baris  ( 2.2%) — katalog data
+model/        ~  209 baris  ( 3.1%) — entitas game
+gacha/        ~  142 baris  ( 2.1%) — sistem gacha
+resources/    ~  112 baris  ( 1.7%) — manajemen aset
+beastclash/   ~   18 baris  ( 0.3%) — entry point
 ```
 
 ---
 
-## 🔍 Penjelasan Detail Tiap File
+## Penjelasan Detail Setiap File
 
 ---
 
-### `Main.java` — 18 baris
+### `Main.java` — Entry Point
+**Baris:** 18 | **Package:** `beastclash`
 
-**Fungsi:** Entry point aplikasi. Menginisialisasi Look & Feel sistem operasi, lalu meluncurkan `MainFrame` di Swing Event Dispatch Thread (EDT) menggunakan `SwingUtilities.invokeLater()` untuk thread-safety.
-
-**Bagian penting:**
-```java
-UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-SwingUtilities.invokeLater(() -> new MainFrame().setVisible(true));
-```
-
----
-
-## 📦 Package `audio`
-
----
-
-### `SoundManager.java` — 503 baris
-
-**Fungsi:** Engine audio lengkap yang menghasilkan semua suara secara **procedural PCM synthesis** — tanpa satu pun file audio eksternal (.wav/.mp3). Semua bunyi dibuat dari gelombang matematika sinusoidal dan noise.
-
-**Pola Desain:** Singleton (`getInstance()`).
-
-**Bagian penting yang dijelaskan:**
-
-**1. Deteksi ketersediaan audio device**
-Pada konstruktor, sistem mencoba membuat `Clip` kecil berisi silence. Jika berhasil, audio siap dipakai. Jika tidak (misalnya server headless), semua operasi audio menjadi *no-op* tanpa crash.
-
-**2. Preloading SFX di background thread**
-Saat startup, semua SFX di-generate dan di-cache di `ConcurrentHashMap<String, byte[]>` oleh thread daemon bernama `SFX-Preload` sehingga tidak ada jeda saat efek suara pertama kali diputar.
-
-**3. BGM Tracks** — dikompilasi dari gelombang matematis:
-| Track | Teknik Synthesis |
-|---|---|
-| `MENU` | Melodi 8 not, gelombang sinus + harmonik, envelope attack/release |
-| `BATTLE` | Gelombang sawtooth bass, pulse wave, kick drum simulasi |
-| `VICTORY` | Akord 4 nada (523/659/784/1047 Hz) dengan decay eksponensial |
-| `STORY` | Pad 4 nada dengan modulasi tremolo lambat (3 Hz) |
-
-**4. SFX Catalog** (12 efek):
-| Nama SFX | Digunakan pada |
-|---|---|
-| `ATTACK` | Serangan normal |
-| `SKILL` | Penggunaan Skill (30 MP) |
-| `ULTIMATE` | Penggunaan Ultimate (70 MP) |
-| `HURT` | Beast terkena serangan enemy |
-| `VICTORY_SFX` | Semua musuh dikalahkan |
-| `DEFEAT` | Tim player kalah |
-| `GACHA` | Pull gacha (whoosh + chime) |
-| `FREEZE` | Efek Blizzard kristal |
-| `CLICK` | Navigasi UI |
-| `RUN` | Kabur dari pertarungan |
-| `EGG` | Animasi telur pecah |
-| `UNLOCK` | Beast baru terbuka |
-
-**5. Konversi volume (linear → dB)**
-Menggunakan rumus matematis benar: `dB = 20 × log₁₀(volume)`, bukan skala linear, untuk mengontrol `FloatControl.Type.MASTER_GAIN` pada `Clip`.
-
-**6. Strategi fallback 3 lapis untuk `openClip()`:**
-- Strategi 1: `AudioSystem.getClip()` langsung (paling kompatibel Windows)
-- Strategi 2: `DataLine.Info` eksplisit (fallback JVM lain)
-- Strategi 3: Format stereo (duplikasi channel mono → stereo, untuk driver yang tidak support mono)
-
----
-
-## 📦 Package `controller`
-
----
-
-### `BattleController.java` — 342 baris
-
-**Fungsi:** Engine turn-based pertarungan bergaya HSR (Honkai: Star Rail). Mengatur urutan giliran seluruh Beast berdasarkan stat **Speed** menggunakan **Action Value System**.
-
-**Bagian penting yang dijelaskan:**
-
-**1. Sistem Action Value**
-Setiap Beast memiliki `actionValue` yang bertambah sebesar `speed`-nya setiap "tick". Beast pertama yang mencapai threshold `ACTION_POINT = 10.000` mendapat giliran. Beast dengan speed lebih tinggi mendapat giliran lebih sering secara proporsional.
+File terkecil namun paling krusial. Titik awal eksekusi program.
 
 ```java
-// Simulasikan tick sampai ada yang siap
-while (true) {
-    for (TurnEntry e : turnQueue) e.actionValue += e.beast.getSpeed();
-    if (turnQueue.stream().anyMatch(e -> e.actionValue >= ACTION_POINT)) break;
+public static void main(String[] args) {
+    UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+    SwingUtilities.invokeLater(() -> {
+        MainFrame frame = new MainFrame();
+        frame.setVisible(true);
+    });
 }
 ```
 
-**2. Antrian Turn (`List<TurnEntry>`)**
-Setiap entry menyimpan: `teamIndex`, `isEnemy` (boolean), referensi `Beast`, dan `actionValue` saat ini. Setelah giliran berakhir, `actionValue` dikurangi `ACTION_POINT` (bukan di-reset ke 0) sehingga sistem proporsional terjaga.
-
-**3. Aksi Player:**
-| Method | Biaya MP | Formula Damage |
-|---|---|---|
-| `performAttack(targetIdx)` | 0 | `ATK − DEF/2` × elemen |
-| `performSkill(targetIdx)` | 30 MP | `(ATK × 1.5) − DEF/2` × elemen |
-| `performUltimate(targetIdx)` | 70 MP | `(ATK × 2) − DEF/3` × elemen |
-| `performRun()` | 0 | 50% berhasil, giliran tidak berpindah jika gagal |
-
-**4. Aksi Enemy (otomatis)**
-Enemy memilih target player secara acak (yang masih hidup). Dengan probabilitas 20%, enemy menggunakan Skill jika mana cukup; sisanya serangan biasa.
-
-**5. `BattleResult` DTO**
-Setiap aksi mengembalikan objek `BattleResult` yang berisi:
-- `log` — teks deskripsi aksi
-- `playerFainted` — apakah ada player yang baru mati
-- `allEnemyDefeated` — apakah semua musuh kalah
-- `allPlayerDefeated` — apakah semua player kalah
-- `damageDealt`, `targetIsEnemy`, `targetDied` — data untuk efek visual
-
-**6. Regenerasi Mana per Giliran**
-Setelah setiap aksi, Beast pulih 8 MP (player) atau 10 MP (enemy) secara otomatis.
+**Fungsi penting:**
+- Menerapkan *System Look and Feel* agar tampilan mengikuti OS.
+- Membungkus inisialisasi `MainFrame` di dalam `SwingUtilities.invokeLater()` untuk memastikan semua operasi UI berjalan di **Event Dispatch Thread (EDT)** — standar aman Swing.
 
 ---
 
-### `GameState.java` — 214 baris
+### `SoundManager.java` — Audio Prosedural
+**Baris:** 503 | **Package:** `audio`
 
-**Fungsi:** **Singleton** penyimpan seluruh state global game yang perlu diakses lintas layar: tim player, tim enemy, map yang dipilih, level saat ini, dan info user yang login.
+Seluruh musik dan efek suara di-*generate* langsung dari kode sebagai gelombang PCM (Pulse-Code Modulation). Tidak ada file `.wav` atau `.mp3` yang dibutuhkan.
 
-**Bagian penting yang dijelaskan:**
+**BGM Track yang tersedia:**
+| Track | Digunakan di |
+|---|---|
+| `MENU` | Main Menu, layar login |
+| `BATTLE` | Arena pertarungan |
+| `VICTORY` | Layar ending |
+| `STORY` | Prolog cerita |
 
-**1. Dual-mode: Online vs Offline**
-- **Online** (MySQL tersedia): data disimpan ke dan dibaca dari database
-- **Offline** (tanpa MySQL): data disimpan di memori (`offlineEggs`, `offlineOwnedIds`) hanya untuk sesi berjalan
+**SFX yang tersedia:**
+`ATTACK`, `SKILL`, `ULTIMATE`, `HURT`, `VICTORY_SFX`, `DEFEAT`, `GACHA`, `FREEZE`, `CLICK`, `RUN`, `EGG`, `UNLOCK`
 
-**2. Cache Beast yang Dimiliki**
-`cachedOwnedBeastIds` menyimpan daftar ID Beast milik user agar tidak query DB berulang. Cache di-invalidate oleh `invalidateBeastCache()` setelah gacha berhasil unlock Beast baru.
+**Bagian penting:**
 
-**3. `loadProgressFromDB()`**
-Mereset seluruh map ke kondisi awal lalu memuat ulang dari DB — mencegah data lama tersisa di memori saat berganti akun.
-
-**4. Deteksi kondisi battle**
-- `isPlayerDefeated()` — true jika semua Beast player HP = 0
-- `isEnemyDefeated()` — true jika semua Beast enemy HP = 0
-- `getActiveBeast()` — mencari Beast player pertama yang masih hidup
-
----
-
-## 📦 Package `data`
-
----
-
-### `BeastData.java` — 113 baris
-
-**Fungsi:** Katalog statis 24 Beast beserta stat dasarnya. Menyediakan method untuk clone Beast (agar tidak berbagi referensi), mencari Beast by ID, dan menghasilkan tim enemy acak berdasarkan elemen map dan level.
-
-**Bagian penting yang dijelaskan:**
-
-**1. Mapping ID Beast**
-```
-Api    : 1=Blazefang,    2=Cinderion,   3=Ignarox,    4=Pyroth
-Air    : 5=Aquarion,     6=Marivex,     7=Nerevion,   8=Tsunadra
-Tanah  : 9=Bedrock Titan,10=Gravok,     11=Quakron,   12=Terragorn
-Daun   : 13=Floravine,   14=Luminaire,  15=Mossdrake, 16=Rootzilla
-Cahaya : 17=Aetherion,   18=Luxeron,    19=Radiantor,  20=Solareth
-Gelap  : 21=Morvexis,    22=Noctyra,    23=Shadowfang, 24=Umbrax
-```
-
-**2. Stat Beast** (format: HP, Mana, ATK, DEF, SPD)
-- Beast elemen biasa: HP 200–280, ATK 50–75, DEF 20–55, SPD 35–70
-- Beast langka (Cahaya/Gelap): semua stat rata-rata lebih tinggi
-
-**3. Generasi Tim Enemy (`getEnemyTeam`)**
-- 70% musuh dari elemen map, 30% elemen acak (variasi)
-- Jumlah musuh bertambah sesuai level: Level 1→2 musuh, Level 2→3, Level 3→4, Level 4+→5
-- Stat enemy diskala: HP×0.85, ATK×0.80, DEF×0.80, SPD+random agar lebih lemah dari Beast player penuh
-
-**4. Beast Starter**
-ID 1, 3, 5, 9, 13 (Blazefang, Ignarox, Aquarion, Bedrock Titan, Floravine) — diberikan gratis saat registrasi di mode offline.
-
----
-
-### `MapData.java` — 32 baris
-
-**Fungsi:** Daftar 6 map dengan konfigurasi elemen dominan, jumlah level, dan status unlock awal. Map pertama (Plains) selalu terbuka; map berikutnya terbuka setelah map sebelumnya diselesaikan penuh.
-
-| Index | Nama | Elemen Musuh | Max Level | Unlock Awal |
-|---|---|---|---|---|
-| 0 | Plains | Daun | 3 | ✅ Terbuka |
-| 1 | Sea | Air | 3 | ❌ Terkunci |
-| 2 | Dessert | Tanah | 3 | ❌ Terkunci |
-| 3 | Blizzard | Cahaya | 3 | ❌ Terkunci |
-| 4 | Volcano | Api | 3 | ❌ Terkunci |
-| 5 | Dark Forest | Gelap | 4 | ❌ Terkunci |
-
----
-
-## 📦 Package `database`
-
----
-
-### `DatabaseManager.java` — 336 baris
-
-**Fungsi:** Mengelola seluruh interaksi dengan database MySQL (XAMPP). Menggunakan koneksi JDBC dan membuat tabel secara otomatis saat pertama kali dijalankan.
-
-**Pola Desain:** Singleton (`getInstance()`).
-
-**Bagian penting yang dijelaskan:**
-
-**1. Konfigurasi Koneksi**
 ```java
-"jdbc:mysql://localhost:3306/beastclash?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
-User: root | Password: (kosong, default XAMPP)
+// Perbaikan volume menggunakan formula dB yang benar
+private void setVol(Clip clip, float level) {
+    // Gunakan 20*log10 bukan linear
+    FloatControl gain = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
+    float dB = (float)(20.0 * Math.log10(Math.max(0.0001, level)));
+    gain.setValue(Math.max(gain.getMinimum(), Math.min(gain.getMaximum(), dB)));
+}
 ```
 
-**2. Auto-create Tabel**
-Tiga tabel dibuat otomatis dengan `CREATE TABLE IF NOT EXISTS`:
-
-```sql
--- Menyimpan akun user
-users: id, username, password (SHA-256), eggs, created_at
-
--- Progress per map per user
-map_progress: user_id, map_index, completed_levels, unlocked
-  UNIQUE KEY (user_id, map_index)
-
--- Beast yang dimiliki user
-beast_owned: user_id, beast_id
-  UNIQUE KEY (user_id, beast_id)
-```
-
-**3. Keamanan Password**
-Password di-hash menggunakan SHA-256 sebelum disimpan — tidak pernah disimpan sebagai plain text.
-
-**4. Beast Starter saat Registrasi**
-Saat user baru register, 8 Beast langsung di-insert: `{1, 2, 3, 5, 6, 9, 13, 17}` (Blazefang, Cinderion, Ignarox, Aquarion, Marivex, Bedrock Titan, Floravine, Aetherion).
-
-**5. `spendEgg()` — Atomic Transaction**
-```sql
-UPDATE users SET eggs = eggs - 1 WHERE id = ? AND eggs > 0
-```
-Kondisi `AND eggs > 0` memastikan telur tidak bisa negatif meski ada race condition.
-
-**6. `saveMapProgress()` — Upsert**
-Menggunakan `ON DUPLICATE KEY UPDATE` agar bisa insert sekaligus update dalam satu query.
-
-**7. `ownsAllBeasts(userId)`**
-Cek apakah user memiliki semua 24 Beast — kondisi untuk menampilkan ending game.
+- SFX di-*preload* di background thread `SFX-Preload` (daemon) saat startup.
+- Deteksi otomatis apakah audio device tersedia — semua operasi `no-op` tanpa crash jika tidak ada.
+- BGM berjalan di thread terpisah agar tidak memblokir UI.
 
 ---
 
-## 📦 Package `gacha`
+### `BattleController.java` — Engine Pertarungan
+**Baris:** 354 | **Package:** `controller`
+
+Inti dari seluruh sistem battle. Mengimplementasikan giliran berbasis kecepatan (*speed-based turn order*) mirip Honkai: Star Rail.
+
+**Sistem Turn (HSR-style):**
+
+```
+ACTION_POINT = 10.000
+
+Setiap "tick", actionValue semua Beast naik sebesar Speed-nya.
+Beast yang pertama mencapai ACTION_POINT mendapat giliran.
+Setelah bertindak, actionValue-nya dikurangi ACTION_POINT (bukan di-reset ke 0),
+sehingga Beast cepat mendapat giliran lebih sering secara proporsional.
+```
+
+**Kelas Inner:**
+
+| Kelas | Fungsi |
+|---|---|
+| `TurnEntry` | DTO berisi referensi Beast, tim (player/enemy), dan `actionValue` saat ini |
+| `BattleResult` | DTO hasil aksi: log teks, flag kemenangan/kekalahan, damage, dan target |
+
+**Aksi yang tersedia:**
+
+| Aksi | Mana | Efek |
+|---|---|---|
+| `performAttack()` | 0 MP | Serangan normal ke satu target |
+| `performSkill()` | 30 MP | Serangan 1.5× ke satu target |
+| `performUltimate()` | 70 MP | Serangan 2× ke satu target |
+| `performRun()` | 0 MP | 50% berhasil kabur |
+| `performEnemyTurn()` | — | AI enemy: 20% skill, 80% attack normal |
+
+**Pemulihan Mana otomatis:**
+- Player: +8 MP setiap akhir giliran
+- Enemy: +10 MP setiap akhir giliran
+
+**`skipCurrentTurn()`** — digunakan untuk efek Freeze agar giliran Beast tertentu dilewati tanpa melakukan aksi.
 
 ---
 
-### `GachaSystem.java` — 142 baris
+### `GameState.java` — State Global (Singleton)
+**Baris:** 214 | **Package:** `controller`
 
-**Fungsi:** Mengimplementasikan sistem gacha berbobot dengan pity system. Mendukung mode online (data ke DB) dan offline (data di memori).
+Satu-satunya sumber kebenaran (*single source of truth*) untuk seluruh kondisi game yang sedang berjalan. Diimplementasikan sebagai Singleton.
 
-**Bagian penting yang dijelaskan:**
+**Data yang dikelola:**
 
-**1. Tabel Bobot**
+| Field | Keterangan |
+|---|---|
+| `maps` | Daftar 6 GameMap dengan status unlock dan progres level |
+| `playerTeam` | Tim Beast pilihan pemain (maks. 3) |
+| `enemyTeam` | Tim Beast musuh yang di-generate per level |
+| `selectedMap` | Map yang sedang aktif |
+| `currentLevel` | Level dalam map (1–4) |
+| `currentUserId` | ID user login (-1 = offline) |
+| `cachedOwnedBeastIds` | Cache ID Beast yang dimiliki (hindari query DB berulang) |
+| `offlineEggs` | Telur gacha untuk mode offline |
+
+**Metode penting:**
+
+```java
+// Muat progres dari DB setelah login
+public void loadProgressFromDB()
+
+// Simpan progres ke DB setelah level selesai
+public void saveMapProgressToDB()
+
+// Invalidasi cache setelah gacha unlock beast baru
+public void invalidateBeastCache()
+
+// Hanya kembalikan Beast yang dimiliki user
+public List<Beast> getAvailableBeasts()
 ```
-Beast BARU  – Elemen biasa (Api/Air/Tanah/Daun) : bobot 4 (sering)
-Beast BARU  – Elemen langka (Cahaya/Gelap)        : bobot 2 (jarang)
-Beast DUPLIKAT (semua elemen)                     : bobot 1 (sangat jarang)
-```
 
-**2. Sistem Pity (pull ke-10)**
-Jika sudah 10 kali pull tanpa mendapat Beast Cahaya/Gelap baru, pull berikutnya **dijamin** Beast langka baru (jika masih ada yang belum dimiliki). Counter pity di-reset ke 0 setelah mendapat Beast langka.
-
-**3. Alur `pull()`**
-```
-1. Cek & kurangi telur (DB atau memori)
-2. Naikkan pityCount
-3. Pisahkan pool: newPool (belum milik) vs dupPool (sudah milik)
-4. Jika pityCount ≥ 10 → paksa Cahaya/Gelap baru
-5. Jika tidak → rollWeighted() berdasarkan bobot
-6. Simpan Beast baru ke DB (online) atau memori (offline)
-7. Putar SFX "GACHA"
-8. Return PullResult(beast, isDuplicate)
-```
-
-**4. `rollWeighted()`**
-Mengakumulasi bobot kumulatif, lalu memilih Beast berdasarkan angka random dalam range total bobot — implementasi weighted random yang benar.
+**Mode offline:** Jika `currentUserId <= 0` atau DB tidak terhubung, semua data disimpan di memori (`offlineEggs`, `offlineOwnedIds`) dan hilang saat session berakhir.
 
 ---
 
-## 📦 Package `model`
+### `Beast.java` — Entitas Beast
+**Baris:** 152 | **Package:** `model`
 
----
-
-### `Beast.java` — 152 baris
-
-**Fungsi:** Entity utama game. Merepresentasikan satu Beast dengan seluruh stat dan logika combat-nya.
+Model data inti yang merepresentasikan satu Beast dalam game.
 
 **Atribut:**
-| Stat | Deskripsi |
+
+| Atribut | Keterangan |
 |---|---|
-| `id` | ID unik (1–24) untuk referensi ke DB dan aset |
+| `id` | ID unik (1–24) |
 | `name` | Nama Beast |
-| `element` | Elemen (Api/Air/Tanah/Daun/Cahaya/Gelap) |
-| `maxHP / currentHP` | HP maksimum dan saat ini |
-| `maxMana / currentMana` | Mana untuk Skill/Ultimate |
-| `attack` | Stat serangan (bisa dimodifikasi debuff map) |
-| `defense` | Stat pertahanan |
-| `speed` | Menentukan frekuensi giliran |
-| `baseAttack/Defense/Speed` | Nilai asli sebelum modifikasi map |
+| `element` | Elemen: Api / Air / Tanah / Daun / Cahaya / Gelap |
+| `maxHP / currentHP` | Titik darah |
+| `maxMana / currentMana` | Poin mana untuk skill/ultimate |
+| `attack` | Serangan dasar |
+| `defense` | Pertahanan (mengurangi damage masuk) |
+| `speed` | Menentukan seberapa sering mendapat giliran |
+| `baseAttack/Defense/Speed` | Nilai asli (untuk reset setelah battle) |
 
-**Bagian penting yang dijelaskan:**
+**Sistem Elemen — Rantai Kelemahan:**
 
-**1. Sistem Kelemahan Elemen (`getElementMultiplier`)**
 ```
-Api   → Daun : ×1.5 (kuat)   |  Api   → Air  : ×0.5 (lemah)
-Air   → Api  : ×1.5           |  Air   → Tanah: ×0.5
-Tanah → Air  : ×1.5           |  Tanah → Daun : ×0.5
-Daun  → Tanah: ×1.5           |  Daun  → Api  : ×0.5
-Cahaya → Gelap: ×1.5          |  Gelap → Cahaya: ×1.5
+Api     → kuat vs Daun  (1.5×), lemah vs Air   (0.5×)
+Air     → kuat vs Api   (1.5×), lemah vs Tanah (0.5×)
+Tanah   → kuat vs Air   (1.5×), lemah vs Daun  (0.5×)
+Daun    → kuat vs Tanah (1.5×), lemah vs Api   (0.5×)
+Cahaya  ↔ Gelap : saling melemahkan (keduanya 1.5× satu sama lain)
 ```
 
-**2. Formula Damage (setelah multiplier elemen)**
+**Formula Damage:**
+
 ```java
-Attack  : Math.max(1, ATK - DEF/2) × elementMultiplier
-Skill   : Math.max(1, (ATK×1.5) - DEF/2) × elementMultiplier
-Ultimate: Math.max(1, ATK×2 - DEF/3) × elementMultiplier
+// Attack normal
+int raw = Math.max(1, attack - target.defense / 2);
+damage = (int)(raw * elementMultiplier);
+
+// Skill (1.5× ATK)
+int raw = Math.max(1, (int)(attack * 1.5) - target.defense / 2);
+
+// Ultimate (2× ATK)
+int raw = Math.max(1, attack * 2 - target.defense / 3);
 ```
-`Math.max(1, ...)` memastikan damage selalu minimal 1.
 
-**3. Modifikasi Stat Map**
-`multiplyAttack()`, `multiplyDefense()`, `multiplySpeed()` mengubah stat saat ini (bukan base). Method `reset()` mengembalikan stat ke `baseAttack/Defense/Speed` yang tersimpan sejak konstruktor.
+**Modifier stat** (`multiplyAttack/Defense/Speed`) digunakan oleh efek map (misal: lava di Volcano mengurangi DEF) dan direset saat `reset()` dipanggil setelah battle.
 
 ---
 
-### `GameMap.java` — 57 baris
+### `GameMap.java` — Entitas Map
+**Baris:** 57 | **Package:** `model`
 
-**Fungsi:** Entity yang merepresentasikan satu map/dunia. Menyimpan nama, elemen musuh dominan, progress level yang sudah diselesaikan, dan status terkunci/terbuka.
+Representasi satu wilayah/dunia yang bisa dijelajahi pemain.
 
-**Method kunci:**
-- `completeLevel()` — tandai satu level selesai (tidak melebihi `maxLevels`)
-- `isFullyCompleted()` — `completedLevels >= maxLevels`, digunakan untuk membuka map berikutnya
-- `setCompletedLevels(v)` — setter aman dengan clamp 0–maxLevels
+**Atribut:**
+
+| Atribut | Keterangan |
+|---|---|
+| `name` | Nama map (harus cocok dengan nama file PNG di resources) |
+| `enemyElement` | Elemen dominan musuh di map ini |
+| `maxLevels` | Jumlah level yang harus diselesaikan (3–4) |
+| `completedLevels` | Jumlah level yang sudah selesai |
+| `unlocked` | Apakah map sudah bisa dimainkan |
+
+Map baru terbuka (*unlock*) setelah map sebelumnya diselesaikan seluruh levelnya.
 
 ---
 
-## 📦 Package `resources`
+### `BeastData.java` — Katalog 24 Beast
+**Baris:** 113 | **Package:** `data`
 
----
+Database statis berisi seluruh data 24 Beast yang ada di game, dikelompokkan per elemen.
 
-### `ResourceManager.java` — 112 baris
+**Distribusi Beast per Elemen:**
 
-**Fungsi:** Memuat dan menyimpan cache semua aset gambar (Beast dan Map) dari classpath. Menghindari load ulang gambar yang sama berulang kali menggunakan `HashMap<String, BufferedImage>`.
+| Elemen | Beast | ID |
+|---|---|---|
+| **Api** | Blazefang, Cinderion, Ignarox, Pyroth | 1–4 |
+| **Air** | Aquarion, Marivex, Nerevion, Tsunadra | 5–8 |
+| **Tanah** | Bedrock Titan, Gravok, Quakron, Terragorn | 9–12 |
+| **Daun** | Floravine, Luminaire, Mossdrake, Rootzilla | 13–16 |
+| **Cahaya** *(langka)* | Aetherion, Luxeron, Radiantor, Solareth | 17–20 |
+| **Gelap** *(langka)* | Morvexis, Noctyra, Shadowfang, Umbrax | 21–24 |
 
-**Pola Desain:** Singleton dengan lazy initialization.
+**Beast Starter (offline):** Blazefang (1), Ignarox (3), Aquarion (5), Bedrock Titan (9), Floravine (13)
 
-**Bagian penting yang dijelaskan:**
+**Beast Starter (online/register):** Blazefang, Cinderion, Ignarox, Aquarion, Marivex, Bedrock Titan, Floravine, Aetherion (8 Beast)
 
-**1. Gambar Beast: Asli vs Flipped**
-Semua sprite Beast menghadap ke kanan. Untuk membedakan posisi:
-- **Player (kiri layar)** → gambar asli `getBeastForPlayer(name)`
-- **Enemy (kanan layar)** → gambar di-flip horizontal `getBeastForEnemy(name)`
+**Generator Tim Enemy:**
 
-Flip dilakukan dengan `AffineTransform` untuk membalik sumbu X:
 ```java
+// Jumlah musuh per level
+Level 1 → 2 musuh
+Level 2 → 3 musuh
+Level 3 → 4 musuh
+Level 4 → 5 musuh (hanya di Dark Forest)
+
+// 70% dari elemen dominan map, 30% elemen acak
+// Stat musuh: 80-85% dari stat Beast normal + bonus (level-1)*12
+```
+
+---
+
+### `MapData.java` — Daftar 6 Map
+**Baris:** 32 | **Package:** `data`
+
+```
+Map 0 – Plains       | Elemen: Daun   | 3 level | Terbuka dari awal
+Map 1 – Sea          | Elemen: Air    | 3 level | Unlock setelah Plains
+Map 2 – Dessert      | Elemen: Tanah  | 3 level | Unlock setelah Sea
+Map 3 – Blizzard     | Elemen: Cahaya | 3 level | Unlock setelah Dessert
+Map 4 – Volcano      | Elemen: Api    | 3 level | Unlock setelah Blizzard
+Map 5 – Dark Forest  | Elemen: Gelap  | 4 level | Map boss terakhir
+```
+
+---
+
+### `DatabaseManager.java` — Lapisan Database
+**Baris:** 336 | **Package:** `database`
+
+Mengelola seluruh komunikasi dengan MySQL menggunakan **Singleton pattern** dan **JDBC**.
+
+**Skema Database:**
+
+```sql
+-- Tabel users
+CREATE TABLE users (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    username   VARCHAR(50) NOT NULL UNIQUE,
+    password   VARCHAR(255) NOT NULL,    -- SHA-256 hash
+    eggs       INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Tabel map_progress
+CREATE TABLE map_progress (
+    id               INT AUTO_INCREMENT PRIMARY KEY,
+    user_id          INT NOT NULL,
+    map_index        INT NOT NULL,
+    completed_levels INT DEFAULT 0,
+    unlocked         TINYINT(1) DEFAULT 0,
+    UNIQUE KEY uq_user_map (user_id, map_index),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- Tabel beast_owned
+CREATE TABLE beast_owned (
+    id       INT AUTO_INCREMENT PRIMARY KEY,
+    user_id  INT NOT NULL,
+    beast_id INT NOT NULL,
+    UNIQUE KEY uq_user_beast (user_id, beast_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+```
+
+**Keamanan Password:** SHA-256 hash via `java.security.MessageDigest` — password tidak pernah disimpan dalam bentuk plaintext.
+
+**Operasi utama:**
+
+| Metode | Fungsi |
+|---|---|
+| `connect()` | Sambung ke MySQL, buat tabel jika belum ada |
+| `register()` | Daftarkan user baru, inisialisasi starter beasts |
+| `login()` | Verifikasi username + password hash |
+| `getEggs() / addEggs() / spendEgg()` | Manajemen telur gacha |
+| `getMapProgress() / saveMapProgress()` | Baca/tulis progres map |
+| `getOwnedBeastIds() / unlockBeast()` | Manajemen koleksi Beast |
+| `ownsAllBeasts()` | Cek apakah pemain sudah mengumpulkan semua 24 Beast |
+
+---
+
+### `GachaSystem.java` — Sistem Gacha
+**Baris:** 142 | **Package:** `gacha`
+
+Sistem *pull* Beast baru menggunakan **weighted random** dengan mekanisme **pity**.
+
+**Bobot Pull:**
+
+| Status Beast | Elemen | Bobot |
+|---|---|---|
+| Beast **BARU** | Api / Air / Tanah / Daun | 4 |
+| Beast **BARU** | Cahaya / Gelap (langka) | 2 |
+| Beast **DUPLIKAT** | Semua elemen | 1 |
+
+**Mekanisme Pity ke-10:**
+Jika dalam 10 pull berturut-turut tidak mendapat Beast Cahaya/Gelap yang **baru**, pull ke-10 **dijamin** memberikan Beast Cahaya/Gelap baru (jika masih ada yang belum dimiliki).
+
+**Biaya:** 1 Telur (*egg*) per pull. Telur didapat sebagai reward setelah menyelesaikan level battle.
+
+**Dukungan Offline:** Jika `userId <= 0` atau DB tidak aktif, gacha menggunakan `offlineEggs` dari `GameState` dan menyimpan hasil ke `offlineOwnedIds` (in-memory).
+
+---
+
+### `ResourceManager.java` — Manajemen Aset
+**Baris:** 112 | **Package:** `resources`
+
+Load dan cache gambar Beast serta latar map menggunakan `HashMap` sebagai *image cache*.
+
+**Fitur penting:**
+
+```java
+// Gambar Beast menghadap KANAN (untuk player di sisi kiri layar)
+public BufferedImage getBeastForPlayer(String name)
+
+// Gambar Beast di-flip horizontal → menghadap KIRI (untuk enemy di sisi kanan)
+public BufferedImage getBeastForEnemy(String name)
+
+// Flip dilakukan dengan AffineTransform
 AffineTransform tx = AffineTransform.getScaleInstance(-1, 1);
 tx.translate(-width, 0);
 ```
 
-**2. Mapping Nama Map → File**
-```
-"Plains"      → Plains.png
-"Dessert"     → Dessert.png
-"Sea"         → Sea.png
-"Blizzard"    → Blizzard.png
-"Volcano"     → Volcano.png
-"Dark Forest" → DarkForest.png
-```
-
-**3. Cache Key Convention**
-- `"map:Plains"` → background map
-- `"beast:Blazefang"` → sprite asli
-- `"beast_flip:Blazefang"` → sprite flipped
+Semua gambar di-cache setelah pertama kali di-load agar tidak ada I/O berulang.
 
 ---
 
-## 📦 Package `view`
+### `MainFrame.java` — Window Utama & Navigasi
+**Baris:** 135 | **Package:** `view`
 
----
+*Controller* navigasi layar menggunakan **CardLayout**. Setiap navigasi ke layar baru membersihkan (*cleanup*) panel lama untuk mencegah *timer zombie* dan kebocoran memori.
 
-### `MainFrame.java` — 135 baris
+**Layar yang tersedia:**
 
-**Fungsi:** Window utama aplikasi. Mengatur navigasi antar-layar menggunakan `CardLayout`, menentukan ukuran window yang berbeda tiap layar, dan membersihkan resource layar lama sebelum berpindah.
-
-**Konstanta layar:**
-| Konstanta | Ukuran Window | Panel |
+| Konstanta | Panel | Ukuran Window |
 |---|---|---|
-| `SCREEN_LOGIN` | 560×560 | LoginPanel |
-| `SCREEN_STORY` | 680×520 | StoryIntroPanel |
-| `SCREEN_MENU` | 560×600 | MainMenuPanel |
-| `SCREEN_MAP` | 560×640 | MapSelectPanel |
-| `SCREEN_BEAST` | 760×640 | BeastSelectPanel |
-| `SCREEN_BATTLE` | 920×640 | BattlePanel |
-| `SCREEN_GACHA` | 580×580 | GachaPanel |
-| `SCREEN_ENDING` | 720×580 | EndingPanel |
+| `SCREEN_LOGIN` | `LoginPanel` | 560 × 560 |
+| `SCREEN_STORY` | `StoryIntroPanel` | 680 × 520 |
+| `SCREEN_MENU` | `MainMenuPanel` | 560 × 600 |
+| `SCREEN_MAP` | `MapSelectPanel` | 560 × 640 |
+| `SCREEN_BEAST` | `BeastSelectPanel` | 760 × 640 |
+| `SCREEN_BATTLE` | `BattlePanel` | 920 × 640 |
+| `SCREEN_GACHA` | `GachaPanel` | 580 × 580 |
+| `SCREEN_ENDING` | `EndingPanel` | 720 × 580 |
 
-**Bagian penting — `switchTo()` (7 langkah):**
-1. Cleanup resource panel lama (stop timer, dll) via interface `Cleanable`
-2. Hapus semua komponen lama dari container
-3. Set preferred size panel baru
-4. Tambahkan panel baru ke `CardLayout`
-5. Paksa `CardLayout` menampilkan panel baru
-6. Resize window dengan memperhitungkan insets (title bar + border)
-7. Re-center window di tengah layar
-
-**Interface `Cleanable`:** Panel yang menggunakan `javax.swing.Timer` wajib mengimplementasikan `cleanup()` agar timer tidak berjalan di background setelah layar diganti (mencegah *timer zombie*).
+Window otomatis di-*resize* dan di-*centered* ke layar monitor setiap kali berpindah panel.
 
 ---
 
-### `LoginPanel.java` — 448 baris
+### `LoginPanel.java` — Autentikasi
+**Baris:** 448 | **Package:** `view`
 
-**Fungsi:** Layar pertama yang muncul. Menangani registrasi, login, pengecekan koneksi database, dan mode offline.
+Layar pertama yang tampil saat game dibuka. Menangani register dan login pengguna.
 
-**Bagian penting yang dijelaskan:**
-
-**1. Animasi Background**
-Timer 33ms menganimasikan bintang berkedip (`starPhase`) dan orb berputar (`orbAngle`) yang digambar di `paintComponent` — memberikan tampilan dinamis tanpa file eksternal.
-
-**2. Deteksi Koneksi Database**
-`checkDBConnection()` mencoba `DatabaseManager.connect()`. Jika berhasil, status "Database: Terhubung" ditampilkan hijau. Jika gagal, muncul tombol **"Main Offline"** yang langsung masuk ke game tanpa akun.
-
-**3. Animasi Shake saat Login Gagal**
-`shake()` menggunakan `Timer` 40ms yang memindahkan posisi card (panel login) ke kiri-kanan sebanyak 8 kali, mensimulasikan getaran.
-
-**4. Alur Login Sukses**
+**Alur Login:**
 ```
-Validasi input → login(username, password) → setCurrentUserId(uid)
-→ loadProgressFromDB() → Timer 800ms → showStory()
+1. Cek koneksi DB (sekali saja, tidak ganda)
+2. Validasi input (username & password tidak kosong)
+3. Kirim ke DatabaseManager.login()
+4. Jika sukses: setCurrentUserId() → loadProgressFromDB() → showStory() / showMainMenu()
+5. Jika gagal: tampilkan pesan error
 ```
+
+**Mode Offline:** Tombol *"Masuk Offline"* tersedia jika DB tidak terhubung — memungkinkan bermain tanpa akun dengan Beast starter.
 
 ---
 
-### `StoryIntroPanel.java` — 599 baris
+### `StoryIntroPanel.java` — Prolog Animasi
+**Baris:** 599 | **Package:** `view`
 
-**Fungsi:** Menampilkan prolog 6 halaman dengan animasi partikel dan teks typewriter sebelum game dimulai.
+Panel prolog berisi **6 halaman cerita** dengan animasi latar berbeda tiap halaman, menggunakan `javax.swing.Timer` untuk rendering animasi.
 
-**6 Halaman Cerita:**
-| Halaman | Judul | Konten |
+**Halaman Cerita:**
+
+| Halaman | Judul | Animasi Latar |
 |---|---|---|
-| 0 | Arcana yang Tenang | Latar dunia harmonis, animasi langit berbintang |
-| 1 | Malam Naas | Meteor jatuh, Beast terkontaminasi |
-| 2 | Zenith Bangkit | Siluet senjata purba, pulsasi cahaya |
-| 3 | Kristal Zenith | Kristal merusak dunia, animasi retakan |
-| 4 | Misi The Wardens | Tugas player, animasi misi |
-| 5 | Judul | Title card "Beast Clash", transisi ke menu |
+| 0 | Dunia Arcana | Langit malam berbintang tenang |
+| 1 | Malam yang Robek oleh Langit | Hujan meteor jatuh |
+| 2 | Zenith | Siluet raksasa muncul dari kegelapan |
+| 3 | Pecahan Kehancuran | Dunia retak, kristal Zenith tumbuh |
+| 4 | Misi Terakhir | Layar *call-to-action* |
+| 5 | Beast Clash | Title card game |
 
-**Bagian penting yang dijelaskan:**
-
-**1. Efek Typewriter**
-`typeTimer` (interval 22ms) menambahkan satu karakter per tick ke `JTextArea`, menciptakan efek teks muncul perlahan. Klik pada area teks langsung menampilkan teks penuh (skip typewriter).
-
-**2. Sistem Animasi per Scene**
-`animTimer` (30ms) memanggil metode draw yang berbeda sesuai `pageIndex`:
-- `drawStarField()` — bintang berkedip dengan brightness acak
-- `drawMeteorScene()` — meteor jatuh miring dengan ekor cahaya dan partikel
-- `drawZenithScene()` — siluet gelap berpulsasi dengan aura ungu
-- `drawCrystalScene()` — kristal ungu tumbuh dengan animasi crack
-- `drawMissionScene()` — teks misi dengan latar bergradasi
+Teks muncul dengan efek *typewriter* — karakter demi karakter. Klik layar untuk skip ke teks lengkap.
 
 ---
 
-### `MainMenuPanel.java` — 267 baris
+### `MapSelectPanel.java` — Pilih Map
+**Baris:** 313 | **Package:** `view`
 
-**Fungsi:** Menu utama dengan tombol navigasi utama dan animasi awan bergerak.
-
-**Tombol navigasi:**
-- **Mulai Bertarung** → `showMapSelect()`
-- **Lihat Beast** → `showBeastSelect()`
-- **Gacha** → `showGacha()`
-- **Credit** → dialog popup nama tim
-- **Pengaturan Audio** → dialog toggle BGM/SFX + slider volume
-- **Keluar** → `System.exit(0)`
-
-**Animasi:** `animTimer` (40ms) menggerakkan `cloudOffset` secara horizontal, menggambar awan berbentuk oval berlapis yang berputar dari kanan ke kiri.
-
-**Implements `Cleanable`:** `cleanup()` menghentikan `animTimer` agar tidak berjalan di latar belakang.
+Menampilkan 6 map dalam bentuk kartu bergambar. Map yang terkunci (*locked*) ditampilkan dengan overlay abu-abu dan ikon gembok. Klik map yang tersedia membawa pemain ke pemilihan level (1–3/4).
 
 ---
 
-### `MapSelectPanel.java` — 313 baris
+### `BeastSelectPanel.java` — Pilih Tim Beast
+**Baris:** 586 | **Package:** `view`
 
-**Fungsi:** Menampilkan 6 kartu map yang bisa dipilih. Map terkunci ditampilkan dengan overlay abu-abu; map terbuka bisa diklik untuk memilih level.
+Layar pemilihan Beast untuk tim player. Hanya menampilkan Beast yang dimiliki oleh user.
 
-**Bagian penting yang dijelaskan:**
-
-**1. Kartu Map (`buildMapCard`)**
-Setiap kartu berisi:
-- Thumbnail background map (scaled)
-- Badge elemen musuh dengan warna dari `ElementColor`
-- Progress bar level (X/max)
-- Status label: "Terbuka", "Selesai", atau "Terkunci"
-- Tombol "Pilih Level 1/2/3" (jika terbuka)
-
-**2. Logika Unlock Map**
-Saat player menyelesaikan semua level di suatu map, map berikutnya di-unlock dan progress disimpan ke DB via `GameState.saveMapProgressToDB()`.
-
-**3. Alur Memilih Map + Level**
-```
-Klik tombol level → state.setSelectedMap(map)
-→ state.setCurrentLevel(level) → generateEnemyTeam()
-→ state.setEnemyTeam(enemies) → frame.showBeastSelect()
-```
+**Fitur:**
+- Grid Beast dengan gambar, nama, elemen, dan stat (HP/ATK/DEF/SPD)
+- Warna elemen berbeda (via `ElementColor`)
+- Pemain memilih maksimal **3 Beast** untuk dibawa ke battle
+- Validasi: minimal 1 Beast harus dipilih
 
 ---
 
-### `BeastSelectPanel.java` — 586 baris
+### `BattlePanel.java` — Arena Pertarungan
+**Baris:** 1.459 (file terbesar) | **Package:** `view`
 
-**Fungsi:** Layar pemilihan tim — menampilkan semua 24 Beast dalam grid, memungkinkan player memilih maksimal 5 Beast untuk dibawa ke battle.
+Panel terkompleks dalam seluruh proyek. Menggabungkan rendering visual, logika UI, animasi, dan koordinasi dengan `BattleController`.
 
-**Bagian penting yang dijelaskan:**
+**Komponen Internal:**
 
-**1. Grid Kartu Beast**
-- Beast yang dimiliki: kartu berwarna dengan gambar, nama, elemen, dan badge stat
-- Beast yang belum dimiliki: kartu abu-abu dengan overlay "TERKUNCI" dan gambar grayscale
-- Filter elemen di bagian atas untuk menyaring tampilan
-
-**2. `toGrayscale()`**
-Menggunakan `ColorConvertOp` dengan `ColorSpace.CS_GRAY` untuk mengubah sprite Beast berwarna menjadi abu-abu bagi Beast yang terkunci.
-
-**3. Popup Detail (Hover)**
-`showDetailPopup()` membuat `JWindow` transparan yang muncul di dekat kartu saat mouse hover, menampilkan stat lengkap Beast (HP, ATK, DEF, SPD, Elemen) dengan latar hitam semi-transparan.
-
-**4. Preview Tim**
-Panel bawah menampilkan 5 slot tim. Saat Beast dipilih, slotnya terisi dengan gambar kecil Beast. Klik Beast yang sudah dipilih untuk menghapusnya dari tim.
-
-**5. `onBegin()`**
-Validasi minimal 1 Beast dipilih, lalu memanggil `state.setPlayerTeam(selectedBeasts)` diikuti `frame.showBattle()`.
-
-**6. Label Koleksi**
-`collectionLabel` menampilkan "X / 24 Beast" — jumlah Beast yang sudah dimiliki dari total 24.
-
----
-
-### `BattlePanel.java` — 1.381 baris *(file terbesar)*
-
-**Fungsi:** Arena battle lengkap dengan efek visual, animasi, debuff map, dan semua mekanisme pertarungan.
-
-**Inner Class penting:**
-
-#### `ActionOrderBar` (inner class, ~120 baris)
-Panel strip horizontal di bagian atas yang menampilkan urutan giliran semua Beast. Setiap slot menampilkan thumbnail sprite Beast yang di-scale kecil, dengan outline berwarna elemen dan indikator giliran saat ini (lebih besar/terang).
-
-#### `BattleArena` (inner class, ~450 baris)
-Canvas utama pertarungan yang menggambar sprite Beast berskala besar, HP bar overlay, dan semua efek visual:
-
-| Efek | Method | Mekanisme |
-|---|---|---|
-| **Hit Effect** | `triggerHitEffect()` | Angka damage melayang ke atas selama 800ms, warna emas untuk Skill/Ultimate |
-| **Flash Effect** | *(di dalam `triggerHitEffect`)* | Sprite Beast berpendar merah/oranye sesuai bentuk gambar (shape-aware) menggunakan alpha compositing |
-| **Death Effect** | `triggerDeathEffect()` | Kristal ungu meledak dengan 12 partikel yang menyebar, disertai SFX "HURT" |
-
-**Bagian penting lainnya:**
-
-**1. `applyMapDebuffs()` & `startMapEffects()`**
-Dipanggil saat konstruktor. Menerapkan modifier stat ke Beast player berdasarkan map yang dipilih:
-
-| Map | Efek Elemen |
+| Kelas Inner | Fungsi |
 |---|---|
-| Plains | Api ATK −20% |
-| Sea | Api ATK/DEF berkurang, Daun SPD −20% |
-| Dessert | −3 HP/3 dtk (imun Api & Tanah), Air DEF −25%, Daun ATK −15% |
-| Blizzard | Api ATK/DEF berkurang, Cahaya DEF +15%, Gelap DEF −20% |
-| Volcano | −5 HP/3 dtk (imun Api), Air ATK/DEF berkurang, Api ATK +15% |
-| Dark Forest | Cahaya ATK/DEF berkurang, Gelap ATK/DEF meningkat, semua elemen DEF −10% |
+| `BattleArena` | Custom `JPanel` yang menggambar latar map, sprite Beast, HP bar, damage number, dan efek partikel |
+| `ActionOrderBar` | Visual antrian giliran (siapa giliran berikutnya, bergaya HSR) |
 
-**2. Periodic Damage Timer**
-Di Dessert dan Volcano, `mapDamageTimer` (`javax.swing.Timer`) berjalan setiap 3.000ms dan mengurangi HP semua Beast yang tidak imun sebesar nilai yang ditentukan.
+**Efek Map (per lingkungan):**
 
-**3. `onPlayerAction()`**
-Router aksi player: memanggil method yang sesuai di `BattleController`, lalu mengproses `BattleResult`:
-- Trigger efek visual
-- Cek kondisi menang/kalah
-- Jadwalkan `scheduleNextTurn()` untuk giliran berikutnya
-
-**4. `scheduleNextTurn()`**
-Menggunakan `Timer` 900ms delay sebelum giliran enemy berjalan, agar transisi terasa alami dan tidak langsung.
-
-**5. Floating Battle Log**
-`JWindow` terpisah yang dapat di-toggle, ditampilkan di luar batas panel utama, berisi `JTextArea` dengan riwayat seluruh aksi battle.
-
-**6. `cleanup()` (Cleanable)**
-Menghentikan `mapDamageTimer` dan `freezeTimer` agar tidak ada efek damage yang terus berjalan setelah battle selesai.
-
----
-
-### `GachaPanel.java` — 476 baris
-
-**Fungsi:** Layar gacha dengan animasi telur berputar, efek partikel, dan kartu reveal Beast yang didapat.
-
-**Bagian penting yang dijelaskan:**
-
-**1. Animasi Telur (`drawEggAnimation`)**
-`animTimer` (30ms) menggambar telur yang berdenyut (scale ±5%) dengan `eggPhase`, dikelilingi partikel melingkar berputar (`particleAng`). Telur berubah warna dari kuning tua → gradasi akord merah-kuning.
-
-**2. Alur `doPull()`**
-```
-Disable tombol → GachaSystem.pull() → Timer 1.500ms delay
-→ showReveal = true → drawReveal() → refresh egg count
-→ Cek ownsAllBeasts() → jika ya: Timer 2.000ms → showEnding()
-```
-
-**3. `drawReveal()` — Kartu Beast**
-Menampilkan kartu dengan:
-- Background gradasi sesuai elemen Beast (warna dari `ElementColor`)
-- Sprite Beast berukuran besar dari `ResourceManager`
-- Nama Beast, elemen, dan label "BARU!" atau "DUPLIKAT"
-- Efek bintang berputar (Beast langka) atau latar statis (Beast biasa)
-
-**4. Implements `Cleanable`:** `cleanup()` menghentikan `animTimer`.
-
----
-
-### `EndingPanel.java` — 259 baris
-
-**Fungsi:** Layar kemenangan akhir setelah semua 24 Beast dikumpulkan. Menampilkan animasi langit fajar dengan percikan bintang dan teks epilog yang muncul bertahap.
-
-**Bagian penting yang dijelaskan:**
-
-**1. Teks Epilog Bertahap**
-`lineTimer` (800ms per baris) mengungkap teks satu baris per giliran, dengan efek typewriter per karakter di dalam baris tersebut. Klik untuk langsung menampilkan semua teks.
-
-**2. Animasi Langit Fajar**
-- Gradasi warna dari biru malam → emas pagi menggunakan `GradientPaint`
-- Orb matahari terbit berpulsasi dengan aura berlapis
-- 30 partikel percikan bintang yang terbang ke atas lalu memudar
-
-**3. Tombol Kembali**
-Setelah beberapa detik atau klik, pemain dapat kembali ke Main Menu dengan BGM beralih ke "MENU".
-
----
-
-### `HPBar.java` — 72 baris
-
-**Fungsi:** Komponen UI custom (`JPanel`) yang menampilkan bar HP atau Mana dengan label teks dan warna dinamis.
-
-**Bagian penting:** Saat HP berada di bawah 30% kapasitas, bar yang semula berwarna hijau otomatis berubah menjadi merah (`new Color(200, 60, 60)`) sebagai peringatan visual kritis. Menggunakan `fillRoundRect` untuk tampilan yang lebih modern.
-
----
-
-### `ElementColor.java` — 46 baris
-
-**Fungsi:** Utility class statis yang memetakan nama elemen ke warna `java.awt.Color` dan label teks. Digunakan secara konsisten di seluruh UI agar warna elemen seragam.
-
-| Elemen | Warna RGB |
+| Map | Efek Battle |
 |---|---|
-| Api | `(220, 80, 30)` — merah-oranye |
-| Air | `(30, 120, 220)` — biru |
-| Tanah | `(139, 90, 43)` — coklat |
-| Daun | `(34, 139, 34)` — hijau |
-| Cahaya | `(255, 215, 0)` — emas |
-| Gelap | `(75, 0, 130)` — ungu tua |
+| Plains | Netral (tidak ada efek khusus) |
+| Sea | DEF Beast Air +15%, DEF Beast Api -15% |
+| Dessert | SPD semua Beast -10% (panas memengaruhi kecepatan) |
+| Blizzard | Freezze acak: ada peluang giliran di-*skip* |
+| Volcano | ATK Beast Api +20%, DEF Beast Tanah -20%, lava particles |
+| Dark Forest | ATK Beast Gelap +20%, semua Beast non-Gelap -10% ATK |
+
+**Animasi yang dirender:**
+- Latar animasi per-frame (timer 40ms = 25 FPS)
+- Sprite Beast player (kiri) dan enemy (kanan)
+- HP/MP bar real-time
+- Angka damage melayang (*floating damage text*)
+- Partikel lava di Volcano
+- Efek kilat di Blizzard
+- Partikel kegelapan di Dark Forest
+
+**Reward setelah menang:** +3 telur (*eggs*) per level. Map berikutnya otomatis di-*unlock* jika semua level map selesai.
 
 ---
 
-## 🔄 Alur Navigasi Antar Layar
+### `GachaPanel.java` — Panel Gacha
+**Baris:** 476 | **Package:** `view`
+
+Antarmuka untuk melakukan pull Beast baru menggunakan telur.
+
+**Informasi yang ditampilkan:**
+- Jumlah telur yang dimiliki
+- Pity counter (pull ke berapa)
+- Hasil pull (gambar Beast, nama, elemen, status baru/duplikat)
+- Jumlah Beast yang sudah dimiliki dari total 24
+
+---
+
+### `EndingPanel.java` — Layar Ending
+**Baris:** 259 | **Package:** `view`
+
+Ditampilkan ketika pemain berhasil mengumpulkan semua **24 Beast** (kondisi kemenangan sejati game).
+
+**Visual:**
+- Latar langit fajar biru-emas dengan animasi bintang dan partikel kunang-kunang
+- Teks ending muncul satu baris per satu (*typewriter effect*)
+- Judul beranimasi `* ARCANA DAMAI *` dengan gradien emas-biru
+- Aurora berwarna-warni di bagian atas layar
+
+---
+
+### `HPBar.java` — Komponen HP/MP Bar
+**Baris:** 72 | **Package:** `view`
+
+Custom `JPanel` yang menampilkan HP dan MP bar dengan gradien warna:
+- HP: merah-oranye (penuh) → merah gelap (kritis)
+- MP: biru muda (penuh) → biru gelap
+
+---
+
+### `ElementColor.java` — Utilitas Warna Elemen
+**Baris:** 46 | **Package:** `view`
+
+Peta warna statis untuk tiap elemen:
+
+| Elemen | Warna |
+|---|---|
+| Api | Oranye-merah |
+| Air | Biru |
+| Tanah | Cokelat |
+| Daun | Hijau |
+| Cahaya | Kuning emas |
+| Gelap | Ungu gelap |
+
+---
+
+## Arsitektur & Alur Sistem
 
 ```
-Main.java
-    └── MainFrame
-            │
-            ├── LoginPanel ──────────────────────────────────────► StoryIntroPanel
-            │   (login / register / offline)                             │
-            │                                                            ▼
-            │                                                       MainMenuPanel
-            │                                                    ┌──────┴──────┐
-            │                                              [Mulai]           [Gacha]
-            │                                                │                  │
-            │                                          MapSelectPanel      GachaPanel
-            │                                                │                  │
-            │                                          BeastSelectPanel    (kembali ke menu)
-            │                                                │
-            │                                          BattlePanel
-            │                                      ┌────────┴────────┐
-            │                                   [Menang]          [Kalah]
-            │                                      │                  │
-            │                               MapSelectPanel      MapSelectPanel
-            │                            (jika semua map selesai)
-            │                                      │
-            │                                 EndingPanel
-            │                            (setelah 24 Beast terkumpul)
-            └──────────────────────────────────────────────────────
+┌─────────────────────────────────────────────────────────────┐
+│                        MainFrame                            │
+│              (CardLayout Navigator + Window)                │
+└──────────────────────────┬──────────────────────────────────┘
+                           │  navigasi layar
+           ┌───────────────┼───────────────┐
+           ▼               ▼               ▼
+     LoginPanel      StoryIntroPanel  MainMenuPanel
+           │                               │
+           ▼                    ┌──────────┼──────────┐
+      GameState ◄──────────     ▼          ▼          ▼
+      (Singleton)        MapSelectPanel  GachaPanel  [dll]
+           │                    │
+           ▼                    ▼
+    DatabaseManager      BeastSelectPanel
+    (MySQL CRUD)                │
+                                ▼
+                          BattlePanel
+                                │
+                                ▼
+                        BattleController
+                        (Turn Engine)
+                                │
+                    ┌───────────┼───────────┐
+                    ▼           ▼           ▼
+                 Beast.java  GameMap   BeastData
+                 (Model)     (Model)   (Katalog)
+```
+
+**Alur Permainan Lengkap:**
+
+```
+Login/Register
+    │
+    ▼
+Story Intro (6 halaman prolog)
+    │
+    ▼
+Main Menu
+    │
+    ├──► Gacha (pull Beast baru dengan telur)
+    │
+    └──► Map Select → Level Select
+              │
+              ▼
+         Beast Select (pilih tim 1-3 Beast)
+              │
+              ▼
+         Battle Panel (turn-based combat)
+              │
+         ┌────┴────┐
+         ▼         ▼
+       Menang    Kalah → kembali ke menu
+         │
+         ▼
+    +3 Telur reward
+    Simpan progres ke DB
+    Cek apakah sudah punya 24 Beast
+         │
+    ┌────┴────┐
+    ▼         ▼
+ Ending      Lanjut
+ Panel       main
 ```
 
 ---
 
-## 🧵 Arsitektur Thread
+## Lore & Cerita Beast Clash
 
-| Thread | Nama | Tujuan |
-|---|---|---|
-| Swing EDT | `main` | Semua operasi UI (Swing tidak thread-safe) |
-| `BGM-<track>` | daemon | Membangun dan memutar BGM di background |
-| `SFX-<name>` | daemon | Memutar SFX tanpa memblokir UI |
-| `SFX-Preload` | daemon | Pre-generate semua SFX saat startup |
-| `javax.swing.Timer` | EDT | Animasi, map damage, enemy turn delay — aman untuk UI |
+### Dunia Arcana
+
+Di jagad raya yang disebut **Arcana**, makhluk-makhluk legendaris yang dikenal sebagai **Beast** telah hidup berdampingan dengan manusia selama ribuan tahun. Enam elemen primordial — **Api, Air, Tanah, Daun, Cahaya, dan Gelap** — menjaga keseimbangan alam semesta Arcana dalam harmoni yang rapuh namun abadi.
+
+Para **Pelatih Beast** adalah penjaga keseimbangan ini. Mereka membangun ikatan dengan Beast, melatih mereka, dan bersama-sama melindungi kedamaian Arcana dari ancaman yang datang silih berganti.
+
+Selama berabad-abad, Arcana hidup tenang.
 
 ---
 
-## 🎮 Dependency Antar Komponen
+### Datangnya Zenith
+
+Malam itu tidak seperti malam-malam lainnya.
+
+Ratusan **meteor** menyobek langit Arcana. Bumi berguncang. Lautan mendidih. Hutan-hutan kuno terbakar dalam sekejap. Namun ini bukan sembarang hujan meteor — ini adalah **Pecahan Zenith**.
+
+**ZENITH** adalah senjata pemusnah massal berbentuk bintang raksasa yang diciptakan oleh peradaban kuno yang telah lama punah. Dirancang untuk menghancurkan dunia-dunia yang dianggap *"tidak layak"* oleh para penciptanya, Zenith telah melayang dalam kegelapan antariksa selama ribuan tahun.
+
+Dan kini — Zenith telah terbangun. Orbitnya mengarah langsung ke Arcana.
+
+---
+
+### Kristal Zenith & Beast yang Terkontaminasi
+
+Setiap pecahan meteor yang jatuh membawa **Kristal Zenith** — batu gelap bercahaya yang memancarkan energi korup. Energi ini mengubah Beast-Beast yang menyentuhnya menjadi liar dan ganas, menyerang manusia tanpa henti.
+
+Lebih buruk lagi: jika semua kristal terkumpul di satu titik, Zenith akan bangkit sepenuhnya dan menghancurkan Arcana dalam sekejap mata.
+
+---
+
+### Misi Sang Pelatih
+
+Organisasi penjaga Arcana — **"The Wardens"** — telah memilih satu Pelatih untuk mengemban tugas yang mustahil:
+
+> *Hancurkan kristal-kristal Zenith yang tersebar di enam penjuru Arcana.*  
+> *Kalahkan Beast yang telah terkontaminasi.*  
+> *Cegah Zenith dari kebangkitannya.*  
+> *Dunia Arcana bergantung padamu.*
+
+Perjalanan dimulai dari **Plains** yang tenang, melewati **Sea** yang bergelombang, **Dessert** yang terbakar, **Blizzard** yang membekukan, **Volcano** yang mengamuk, hingga akhirnya tiba di **Dark Forest** — hutan tergelap di Arcana, tempat kristal Zenith terbesar bersembunyi.
+
+---
+
+## Sistem Ending
+
+### Kondisi Ending
+
+Ending game terpicu ketika pemain berhasil **mengumpulkan semua 24 Beast** dalam koleksinya — baik melalui starter awal maupun sistem gacha.
+
+### Ending: "Arcana Damai"
+
+Ketika Beast ke-24 berhasil dikumpulkan, layar `EndingPanel` ditampilkan dengan latar langit fajar biru-emas. Teks ending muncul perlahan, satu baris demi satu:
 
 ```
-Main
-  └── MainFrame (navigasi)
-        ├── LoginPanel
-        │     └── DatabaseManager (auth)
-        ├── BeastSelectPanel
-        │     ├── GameState (available beasts)
-        │     ├── BeastData (katalog)
-        │     └── ResourceManager (sprite)
-        ├── BattlePanel
-        │     ├── BattleController (engine)
-        │     │     ├── GameState (teams, status)
-        │     │     └── SoundManager (sfx)
-        │     ├── ResourceManager (sprite, map bg)
-        │     └── ElementColor (warna)
-        ├── GachaPanel
-        │     ├── GachaSystem (logika pull)
-        │     │     ├── DatabaseManager (eggs, beast_owned)
-        │     │     ├── GameState (offline mode)
-        │     │     └── BeastData (pool)
-        │     └── ResourceManager (sprite reveal)
-        └── MapSelectPanel
-              └── GameState (map progress)
+"Semua kristal Zenith telah dihancurkan."
+"Beast-beast Arcana kembali hidup dalam damai."
+"Zenith tidak jadi bangkit."
+"Dunia Arcana terselamatkan."
+
+"Di bawah langit biru yang tenang,
+manusia dan Beast kembali berdampingan —
+seperti ribuan tahun sebelumnya."
+
+"Kamu, sang Pelatih, kini menjadi legenda.
+The Wardens menorehkan namamu
+di Menara Bintang Arcana untuk selamanya."
+
+"— T H E   E N D —"
 ```
 
----
+### Makna Ending
 
-## 📝 Catatan Teknis Penting
+Zenith tidak dikalahkan dalam satu pertarungan epik — melainkan dilemahkan perlahan oleh ikatan antara manusia dan Beast. Setiap kristal yang dihancurkan, setiap Beast yang diselamatkan dari kontaminasi, merupakan satu langkah lebih jauh menjauhkan Arcana dari kehancuran.
 
-**Mengapa tidak ada file audio eksternal?**
-Semua suara di-generate secara procedural menggunakan PCM synthesis (gelombang sinus, noise, envelope). Pendekatan ini menghilangkan ketergantungan pada file `.wav`/`.mp3` dan mengurangi ukuran distribusi secara signifikan.
+Ketika semua 24 Beast telah bersatu — enam elemen dalam harmoni sempurna — energi Zenith kehilangan sumbernya dan bintang pemusnah itu kembali tertidur untuk selamanya.
 
-**Mengapa semua gambar menghadap kanan?**
-Konvensi sprite: semua Beast menghadap kanan. Saat ditampilkan sebagai enemy, `ResourceManager` membalik gambar secara horizontal menggunakan `AffineTransform` — tidak perlu aset terpisah per sisi.
-
-**Mengapa `GameState` menggunakan Singleton?**
-State game perlu diakses dari berbagai layar yang berbeda (`BattlePanel`, `MapSelectPanel`, `BeastSelectPanel`, dll.) tanpa passing parameter yang panjang. Singleton memberikan titik akses terpusat yang konsisten.
-
-**Mode Offline**
-Jika MySQL tidak tersedia, game tetap bisa dimainkan penuh. Progress tidak tersimpan antar sesi, tetapi Beast yang didapat lewat gacha tersedia selama sesi berjalan (disimpan di `offlineOwnedIds` dalam memori).
+**Pesan ending:** Kekuatan sejati tidak berasal dari satu pahlawan, melainkan dari persatuan semua makhluk yang berjuang bersama.
 
 ---
 
-*Dokumen ini dibuat berdasarkan analisis seluruh kode sumber Beast Clash — 22 file Java, 6.603 baris kode, oleh Tim Beast Clash 2026.*
+## Slogan
+
+---
+
+> **"Enam Elemen. Satu Dunia. Tak Terbatas Kemungkinan."**
+
+---
+
+> *"Beast bukan sekadar senjata — mereka adalah sahabat yang akan berdiri bersamamu di tengah badai tergelap Arcana."*
+
+---
+
+> **"Kumpulkan. Latih. Bangkitkan. — Selamatkan Arcana."**
+
+---
+
+*Beast Clash © 2026 — Dikembangkan dengan ❤️ oleh Tim Beast Clash*  
+*Agung Wahyu Niti Wijaya · Ahmad Dziqro Attayu Setio Damar · Septi Lailatul Fitria · Raga Deva Bela Negara · Nova Salwa Safitri*
