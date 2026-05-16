@@ -151,7 +151,7 @@ public class MainMenuPanel extends JPanel implements MainFrame.Cleanable {
             "║  • Nova Salwa Safitri                                                      ║\n" +
             "║  • Septi Lailatul Fitria                                                     ║\n" +
             "╠══════════════════════════════╣\n" +
-            "║  © 2025 Beast Clash Team                                            ║\n" +
+            "║  © 2026 Beast Clash Team                                            ║\n" +
             "╚══════════════════════════════╝";
 	JOptionPane.showMessageDialog(this, credits, "Credits", JOptionPane.INFORMATION_MESSAGE);
     }
