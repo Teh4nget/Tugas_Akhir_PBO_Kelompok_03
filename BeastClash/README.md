@@ -14,7 +14,7 @@
 ## Langkah 1 — Clone Repository
 
 ```
-git clone https://github.com/username/BeastClash.git](https://github.com/Teh4nget/Tugas_Akhir_PBO_Kelompok_03.git
+git clone https://github.com/Teh4nget/Tugas_Akhir_PBO_Kelompok_03.git
 cd BeastClash
 ```
 
