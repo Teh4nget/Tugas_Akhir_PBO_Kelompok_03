@@ -11,7 +11,14 @@
 
 ---
 
-## Langkah 1 — Siapkan Driver MySQL (Sudah ada dalam folder `lib/`)
+## Langkah 1 — Clone Repository
+
+```
+git clone https://github.com/username/BeastClash.git](https://github.com/Teh4nget/Tugas_Akhir_PBO_Kelompok_03.git
+cd BeastClash
+```
+
+## Langkah 2 — Siapkan Driver MySQL (Sudah ada dalam folder `lib/`)
 
 1. Download `mysql-connector-j-9.x.x.jar` dari:  
    👉 https://dev.mysql.com/downloads/connector/j/
@@ -25,7 +32,7 @@
 
 ---
 
-## Langkah 2 — Siapkan Database (XAMPP)
+## Langkah 3 — Siapkan Database (XAMPP)
 
 1. Jalankan **XAMPP** → klik **Start** pada **Apache** dan **MySQL**
 2. Buka **phpMyAdmin** → http://localhost/phpmyadmin
@@ -35,7 +42,7 @@
 
 ---
 
-## Langkah 3 — Buka di NetBeans
+## Langkah 4 — Buka di NetBeans
 
 1. **File → Open Project** → pilih folder `BeastClash`
 2. Klik kanan project → **Properties → Libraries**
