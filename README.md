@@ -680,7 +680,7 @@ Panel terkompleks dalam seluruh proyek. Menggabungkan rendering visual, logika U
 - Efek kilat di Blizzard
 - Partikel kegelapan di Dark Forest
 
-**Reward setelah menang:** +3 telur (*eggs*) per level. Map berikutnya otomatis di-*unlock* jika semua level map selesai.
+**Reward setelah menang:** +3 telur (*eggs*) per map ( 1 map berisi 3 level). Map berikutnya otomatis di-*unlock* jika semua level map selesai.
 
 ---
 
