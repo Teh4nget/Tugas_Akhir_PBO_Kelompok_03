@@ -431,11 +431,17 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
         // ── Efek visual ───────────────────────────────────────────────────────
         if (result.damageDealt > 0) {
             boolean isCrit = action.equals("skill") || action.equals("ultimate");
-            arenaPanel.triggerHitEffect(result.damageDealt, isCrit, result.targetIsEnemy);
+            String targetName = result.targetIsEnemy
+                ? (state.getEnemyTeam().size() > selectedEnemyIdx ? state.getEnemyTeam().get(selectedEnemyIdx).getName() : "")
+                : (state.getPlayerTeam().isEmpty() ? "" : state.getPlayerTeam().get(0).getName());
+            arenaPanel.triggerHitEffect(result.damageDealt, isCrit, result.targetIsEnemy, targetName);
             arenaPanel.triggerShake(isCrit);
         }
         if (result.targetDied) {
-            arenaPanel.triggerDeathEffect(result.targetIsEnemy);
+            String targetName = result.targetIsEnemy
+                ? (state.getEnemyTeam().size() > selectedEnemyIdx ? state.getEnemyTeam().get(selectedEnemyIdx).getName() : "")
+                : (state.getPlayerTeam().isEmpty() ? "" : state.getPlayerTeam().get(0).getName());
+            arenaPanel.triggerDeathEffect(result.targetIsEnemy, targetName);
         }
 
         if (result.log.contains("[RUN_SUCCESS]")) {
@@ -484,11 +490,16 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
 
             // ── Efek visual enemy ─────────────────────────────────────────────
             if (res.damageDealt > 0) {
-                arenaPanel.triggerHitEffect(res.damageDealt, false, res.targetIsEnemy);
+                // Enemy menyerang player — cari player aktif yang hidup
+                String targetName = "";
+                for (Beast b : state.getPlayerTeam()) { if (b.isAlive()) { targetName = b.getName(); break; } }
+                arenaPanel.triggerHitEffect(res.damageDealt, false, res.targetIsEnemy, targetName);
                 arenaPanel.triggerShake(false);
             }
             if (res.targetDied) {
-                arenaPanel.triggerDeathEffect(res.targetIsEnemy);
+                String targetName = "";
+                for (Beast b : state.getPlayerTeam()) { if (!b.isAlive()) { targetName = b.getName(); break; } }
+                arenaPanel.triggerDeathEffect(res.targetIsEnemy, targetName);
             }
 
             checkBlizzardFreeze();
@@ -1021,7 +1032,7 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
         private final java.util.List<float[]>   deathMeta    = new java.util.ArrayList<>(); // [cx,cy,alpha,isEnemy]
 
         // ── Trigger dari luar ─────────────────────────────────────────────────
-        void triggerHitEffect(int damage, boolean isCrit, boolean isEnemy) {
+        void triggerHitEffect(int damage, boolean isCrit, boolean isEnemy, String beastName) {
             // Bersihkan efek LAMA sebelum tambah baru agar tidak menumpuk
             hitEffects.clear();
             flashEffects.clear();
@@ -1030,17 +1041,18 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
             Random rnd = new Random();
             // Gunakan formula SAMA seperti paintComponent agar ukuran flash sesuai sprite
             int spriteSize = Math.min(W / 4, (int)((H - 80) * 0.72));
-            int groundY    = H - 60;
+            int groundY    = getGroundY(H);
+            int bOffset    = getBeastBottomOffset(beastName, spriteSize);
 
             // Posisi teks damage (di atas sprite, sedikit random)
             int tx = isEnemy
                 ? (int)(W * 0.88) - spriteSize/2 + rnd.nextInt(30) - 15
                 : (int)(W * 0.12) + spriteSize/2 + rnd.nextInt(30) - 15;
-            int ty = groundY - spriteSize - 10 + rnd.nextInt(20);
+            int ty = groundY - spriteSize + bOffset - 10 + rnd.nextInt(20);
 
             // Posisi sprite yang kena
             int sx = isEnemy ? (int)(W * 0.88) - spriteSize : (int)(W * 0.12);
-            int sy = groundY - spriteSize;
+            int sy = groundY - spriteSize + bOffset;
 
             // [x, y, vy, alpha, damage, isCrit(1=yes), isEnemy(1=yes)]
             hitEffects.add(new float[]{tx, ty, -3.0f, 1.0f, damage, isCrit?1f:0f, isEnemy?1f:0f});
@@ -1052,7 +1064,7 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
             startEffectTimer();
         }
 
-        void triggerDeathEffect(boolean isEnemy) {
+        void triggerDeathEffect(boolean isEnemy, String beastName) {
             // Bersihkan death effect lama
             deathEffects.clear();
             deathMeta.clear();
@@ -1060,11 +1072,12 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
             int W = getWidth(), H = getHeight();
             // Gunakan formula SAMA seperti paintComponent agar posisi death effect akurat
             int spriteSize = Math.min(W / 4, (int)((H - 80) * 0.72));
-            int groundY    = H - 60;
+            int groundY    = getGroundY(H);
+            int bOffset    = getBeastBottomOffset(beastName, spriteSize);
             float cx = isEnemy
                 ? (float)(W * 0.88) - spriteSize/2f
                 : (float)(W * 0.12) + spriteSize/2f;
-            float cy = groundY - spriteSize/2f;
+            float cy = groundY - spriteSize/2f + bOffset;
 
             Random rnd = new Random();
             float[][] shards = new float[20][7];
@@ -1156,7 +1169,7 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
             TurnEntry   cur     = battle.getCurrentTurn();
 
             int spriteSize = Math.min(W / 4, (int)((H - 80) * 0.72)); // lebih kecil
-            int groundY    = H - 60;
+            int groundY    = getGroundY(H);
 
             // ── Player: kiri bawah, menghadap kanan ───────────────────────────
             Beast activePlayer = null;
@@ -1165,7 +1178,8 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
 
             if (activePlayer != null) {
                 int px = (int)(W * 0.12);
-                int py = groundY - spriteSize;
+                int pOffset = getBeastBottomOffset(activePlayer.getName(), spriteSize);
+                int py = groundY - spriteSize + pOffset;
                 boolean pActive = (cur != null && !cur.isEnemy);
                 drawBeastSprite(g2, px, py, spriteSize, spriteSize, activePlayer, true, pActive, false);
                 drawMiniBar(g2, px, py+spriteSize+4, spriteSize, 8,
@@ -1186,7 +1200,8 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
             }
             if (activeEnemy != null) {
                 int ex = (int)(W * 0.88) - spriteSize;
-                int ey = groundY - spriteSize;
+                int eOffset = getBeastBottomOffset(activeEnemy.getName(), spriteSize);
+                int ey = groundY - spriteSize + eOffset;
                 boolean eActive  = (cur != null && cur.isEnemy);
                 boolean isTarget = (activeEnemyIdx2 == selectedEnemyIdx);
                 drawBeastSprite(g2, ex, ey, spriteSize, spriteSize, activeEnemy, false, eActive, isTarget);
@@ -1301,6 +1316,59 @@ public class BattlePanel extends JPanel implements MainFrame.Cleanable {
             g.fillRect(0, 0, w, h);
             g.dispose();
             return out;
+        }
+
+        // ── Ground Y per-map: posisi kaki beast sesuai garis tanah gambar ─────
+        // ── Offset kaki visual per-beast: koreksi padding transparan di bawah sprite ─
+        // Nilai = fraksi dari spriteSize yang harus digeser ke bawah
+        // agar kaki visual beast tepat menyentuh groundY.
+        // Dihitung dari: bottomPad / imageHeight (semua gambar 1080x1080)
+        private int getBeastBottomOffset(String beastName, int spriteSize) {
+            float frac;
+            switch (beastName) {
+                case "Blazefang":    frac = 0.000f; break;
+                case "Rootzilla":    frac = 0.000f; break;
+                case "Terragorn":    frac = 0.000f; break;
+                case "Noctyra":      frac = 0.001f; break;
+                case "Quakron":      frac = 0.001f; break;
+                case "Umbrax":       frac = 0.001f; break;
+                case "Bedrock Titan": frac = 0.007f; break;
+                case "Solareth":     frac = 0.017f; break;
+                case "Luminaire":    frac = 0.009f; break;
+                case "Floravine":    frac = 0.037f; break;
+                case "Tsunadra":     frac = 0.044f; break;
+                case "Aquarion":     frac = 0.045f; break;
+                case "Morvexis":     frac = 0.051f; break;
+                case "Shadowfang":   frac = 0.056f; break;
+                case "Aetherion":    frac = 0.064f; break;
+                case "Luxeron":      frac = 0.067f; break;
+                case "Radiantor":    frac = 0.069f; break;
+                case "Cinderion":    frac = 0.072f; break;
+                case "Nerevion":     frac = 0.073f; break;
+                case "Ignarox":      frac = 0.100f; break;
+                case "Pyroth":       frac = 0.101f; break;
+                case "Mossdrake":    frac = 0.108f; break;
+                case "Gravok":       frac = 0.119f; break;
+                case "Marivex":      frac = 0.181f; break;
+                default:             frac = 0.050f; break;
+            }
+            return (int)(spriteSize * frac);
+        }
+
+        private int getGroundY(int H) {
+            GameMap map = state.getSelectedMap();
+            String name = (map != null) ? map.getName() : "Plains";
+            float pct;
+            switch (name) {
+                case "Plains":      pct = 0.72f; break; // rumput hijau ~70-72%
+                case "Sea":         pct = 0.77f; break; // garis pasir/laut ~77%
+                case "Dessert":     pct = 0.88f; break; // pasir gelap ~88%
+                case "Blizzard":    pct = 0.73f; break; // salju ~73%
+                case "Volcano":     pct = 0.80f; break; // dalam lingkaran arena ~80%
+                case "Dark Forest": pct = 0.73f; break; // tanah hutan ~73%
+                default:            pct = 0.75f; break;
+            }
+            return (int)(H * pct);
         }
 
         // ── Draw background map ────────────────────────────────────────────────
