@@ -332,8 +332,6 @@ public class GachaPanel extends JPanel implements MainFrame.Cleanable {
             g2.fillOval(imgX, imgY, imgSize, imgSize);
             g2.setColor(ec);
             g2.setFont(new Font("Segoe UI", Font.BOLD, 40));
-            g2.drawString(ElementColor.getEmoji(b.getElement()),
-                imgX + imgSize/2 - 20, imgY + imgSize/2 + 15);
         }
 
         // ── Nama beast ────────────────────────────────────────────────────────
@@ -346,7 +344,7 @@ public class GachaPanel extends JPanel implements MainFrame.Cleanable {
         // Elemen
         g2.setFont(new Font("Segoe UI", Font.BOLD, 11));
         g2.setColor(ec.brighter());
-        String elemStr = ElementColor.getEmoji(b.getElement()) + " " + b.getElement();
+        String elemStr = b.getElement();
         FontMetrics fm2 = g2.getFontMetrics();
         g2.drawString(elemStr, (w - fm2.stringWidth(elemStr)) / 2, textY + 16);
 
